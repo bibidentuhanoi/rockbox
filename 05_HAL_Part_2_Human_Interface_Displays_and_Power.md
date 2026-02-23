@@ -18,8 +18,8 @@ The logical framebuffer (`framebuffer[]`) matches the native pixel format of the
 
 ---
 
-### 1.2 Deep Dive: AS3525 DBOP LCD Driver (Level 10 Depth)
-The Sansa Clip (AS3525 SoC) uses a dedicated "Data Block Output Port" (DBOP) peripheral to drive its OLED via an 8-bit parallel bus. This section dissects the driver stack from the high-level API down to the physical wire signals.
+### 1.2 Deep Dive: AS3525 DBOP LCD Driver (Level 12 Depth)
+The Sansa Clip (AS3525 SoC) uses a dedicated "Data Block Output Port" (DBOP) peripheral to drive its OLED via an 8-bit parallel bus. This section dissects the driver stack from the high-level API down to the photon emission physics.
 
 #### Level 1: The User API Call
 The UI thread decides to redraw the screen.
@@ -106,6 +106,19 @@ The parallel bus timing (Setup, Hold, Pulse Width) is programmable via `TIMPOL` 
 
 #### Level 9: The Wire Protocol (8080 Parallel)
 When `DBOP_DOUT = 0xAF` is executed, the hardware generates the following waveform on the physical traces:
+
+```text
+Clock: 24MHz (41.6ns)
+        __    __    __    __    __    __    __
+CLK  __|  |__|  |__|  |__|  |__|  |__|  |__|  |__
+     _____________________________________________
+CS#
+     __________                         __________
+WR#            |_______________________|
+               <----- 0x67 (4us) ----->
+     ____________________ ________________________
+D0-7 --------------------<__0xAF__________________>
+```
 1.  **CS# (Chip Select):** Driven LOW.
 2.  **D/C# (Data/Command):** Driven LOW (set by software GPIO A5).
 3.  **WR# (Write Strobe):** Driven LOW for `TIMPOL.LOW` cycles.
@@ -118,7 +131,20 @@ Inside the OLED panel, the SSD1329 controller receives `0xAF`:
 1.  **Instruction Decoder:** Recognizes `0xAF` as "Display ON".
 2.  **Power State Machine:** Activates the internal charge pump (VCC generation).
 3.  **Gate Driver:** Begins scanning the OLED matrix rows.
-4.  **Pixel Emission:** Organic LEDs light up based on GDRAM content.
+
+#### Level 11: Signal Integrity & Timing Constraints
+At Level 11, we consider the signal propagation delay.
+*   **24MHz Clock Period:** ~41.6ns.
+*   **Pulse Width:** `0x67` cycles = 103 * 41.6ns = ~4.28us.
+*   **SSD1329 Spec:** Requires write pulse width > 60ns. Rockbox is conservatively slow here to prevent corruption due to trace capacitance.
+*   **Capacitance:** The Flex PCB connector adds ~10-20pF per line. The AS3525 GPIO drive strength must be sufficient to toggle this capacitance within the setup/hold time.
+
+#### Level 12: The Photon Emission Logic
+When the Gate Driver selects Row N and the Source Driver applies voltage to Column M (based on `framebuffer` content):
+1.  **Current Flow:** Current flows through the Organic LED material.
+2.  **Exciton Formation:** Holes and electrons recombine.
+3.  **Emission:** Energy is released as photons.
+4.  **Decay:** The "ghosting" effect is negligible on OLEDs compared to LCDs, allowing the "1-bit Vertical" refresh strategy to be tear-free even without VSYNC synchronization on this device.
 
 ---
 
@@ -162,6 +188,26 @@ if ((gpio_a & 0x02) == 0)
 if ((gpio_b & 0x40) == 0)
     btn |= BUTTON_POWER;
 ```
+
+#### Level 11: The Time-Domain Logic (Debounce)
+In `firmware/drivers/button.c`, `button_tick()` is called every kernel tick (e.g., 10ms).
+*   **State History:** The `lastbtn` static variable holds the previous state.
+*   **Logic:**
+    ```c
+    int diff = btn ^ lastbtn;
+    if (diff) {
+        /* State changed. Post EVENT_BUTTON to queue. */
+        button_queue_post(btn);
+    }
+    ```
+*   **Acceleration:** For Repeat keys (Volume), a counter `repeat_speed` decrements on every tick while the button is held. When it hits 0, a new event is generated, and `repeat_speed` is reset to a smaller value (accelerating from 160ms -> 50ms repeat rate).
+
+#### Level 12: The Physics of Contact Bounce
+When the metal dome of the HOME button snaps down:
+1.  **Make:** The contacts touch.
+2.  **Bounce:** The dome performs damped harmonic oscillation, breaking contact repeatedly for ~1-5ms.
+3.  **Settle:** Constant contact is established.
+4.  **Rockbox Handling:** Since `button_tick` runs at ~100Hz (10ms period), it inherently low-pass filters these sub-10ms bounces. The first tick sees the "Make". The bounces happen *between* ticks and are invisible to the software.
 
 ---
 
@@ -216,9 +262,23 @@ The ADC driver (`adc-target.h`) manages the specific hardware channel mappings.
 *   **Voltage Divider:** The battery (3.7V - 4.2V) is connected to a resistor divider (e.g., 100k/100k) to bring it within the ADC's 0-2.5V reference range.
 *   **Scaling:** Rockbox scales the raw reading back to millivolts: `mV = (raw * 2500 * 2) / 1024`.
 
-### 3.3 Charging State Machine
-Rockbox implements a software-controlled charging algorithm (`docs/CHARGING_ALGORITHM`).
-1.  **Insertion:** Detect USB VBUS > 4.5V.
-2.  **Current Limiting:** Set PMIC input current limit (100mA initially, 500mA if enumeration succeeds).
-3.  **Top-Off:** When voltage reaches 4.2V, switch to Constant Voltage (CV) mode (if supported by PMIC) or pulse charging.
-4.  **Safety:** Monitor temperature (via NTC thermistor on `ADC_TEMP_SENS`) and cut power if T > 45°C.
+#### Level 11: The I2C Transaction State Machine (PMIC)
+The AS3514 PMIC (used in some variants) is controlled via I2C.
+1.  **Bit-Banging:** Rockbox manually toggles GPIOs for SDA/SCL.
+    ```c
+    /* firmware/target/arm/as3525/fmradio-i2c-as3525.c */
+    void i2c_bit(bool level) {
+        SDA_OUT(level);
+        udelay(2); /* Setup time */
+        SCL_OUT(1);
+        udelay(2); /* Hold time */
+        SCL_OUT(0);
+    }
+    ```
+2.  **ACK Polling:** After sending the register address (`0x22` for Charger), the driver switches SDA to Input and pulses SCL to read the ACK bit from the PMIC.
+
+#### Level 12: The Electrochemical Model
+The `percent_to_volt_discharge` table implicitly models the Li-Ion chemistry (LiCoO2).
+*   **3.7V Plateau:** The flat region of the curve (30% to 70%) corresponds to the phase transition plateau of the cathode material.
+*   **Temperature Coefficient:** Rockbox monitors `ADC_TEMP_SENS`. While the legacy code primarily uses this for safety (cut-off > 45°C), advanced patches use it to adjust the voltage curve, as Li-Ion voltage drops significantly at low temperatures (increasing internal resistance).
+*   **Peukert's Law:** The "Charge" vs "Discharge" tables account for the IR drop ($V_{term} = V_{ocv} - I \times R_{internal}$). When charging, the terminal voltage is higher ($V_{term} = V_{ocv} + I \times R_{internal}$), necessitating the `percent_to_volt_charge` table offset to prevent the UI from jumping to "100%" immediately upon plugging in.
