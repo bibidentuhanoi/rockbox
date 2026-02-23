@@ -176,49 +176,137 @@ void system_init(void)
 
 ---
 
-## 5. Comparative Architecture Matrix
-This table summarizes how different subsystems are abstracted across targets.
+## 5. The Native Linux Port (Maemo/Pandora/Rolo)
+Beyond SDL and Android, Rockbox runs "natively" on embedded Linux devices like the Nokia N900 (Maemo) and OpenPandora. This port (`firmware/target/hosted/linux`) bypasses SDL for direct hardware access via the Linux kernel APIs.
 
-| Feature | Bare Metal (ARM) | Hosted (SDL/Linux) | Android (JNI) | ESP32 (Proposed) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Scheduler** | ASM Context Switch | Pthreads + Global Lock | Pthreads + Global Lock | FreeRTOS Tasks |
-| **Tick Source** | Hardware Timer IRQ | `SIGALRM` / `SDL_Delay` | `Thread.sleep()` | FreeRTOS Tick |
-| **Display** | LCD Controller Registers | SDL Window / X11 | Android Surface / Bitmap | SPI DMA (esp_lcd) |
-| **Audio** | I2S DMA Interrupts | ALSA / PulseAudio | `AudioTrack.write()` | I2S DMA (driver) |
-| **Storage** | ATA/SD Registers | POSIX `fopen`/`fread` | POSIX (via VFS) | POSIX (via VFS) |
-| **Input** | GPIO Scanning | Keyboard/Mouse Events | Touch Events | GPIO ISR / ADC |
-| **Panic** | Screen Dump + loop | `abort()` / `gdb` | Logcat stacktrace | ESP Panic / Backtrace |
+### 5.1 Framebuffer Direct Access (`lcd-linuxfb.c`)
+Instead of an SDL window, Rockbox writes directly to the Linux Framebuffer device (`/dev/fb0`).
+
+**Mechanism:**
+1.  **Open:** `fd = open("/dev/fb0", O_RDWR);`
+2.  **Query:** `ioctl(fd, FBIOGET_VSCREENINFO, &vinfo)` retrieves resolution and bit depth.
+3.  **Map:** `mmap()` the framebuffer memory into Rockbox's address space.
+4.  **Blit:** `lcd_update` uses `memcpy` or optimized loops to copy the internal `framebuffer[]` to the mmap'd pointer.
+
+```c
+/* firmware/target/hosted/lcd-linuxfb.c */
+void lcd_init_device(void)
+{
+    int fd = open("/dev/fb0", O_RDWR);
+    ioctl(fd, FBIOGET_FSCREENINFO, &finfo);
+
+    /* Map video memory */
+    framebuffer = mmap(0, finfo.smem_len, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+
+    /* Double Buffering Logic */
+    if (finfo.smem_len >= 2 * FRAMEBUFFER_SIZE) {
+        doublebuf = 1;
+        vinfo.yres_virtual = vinfo.yres * 2;
+        ioctl(fd, FBIOPUT_VSCREENINFO, &vinfo);
+    }
+}
+
+void lcd_update(void) {
+    if (doublebuf) {
+        /* Switch Page */
+        vinfo.yoffset = (vinfo.yoffset == 0) ? LCD_HEIGHT : 0;
+        ioctl(fd, FBIOPAN_DISPLAY, &vinfo); /* VSYNC Flip */
+    }
+}
+```
+
+### 5.2 The `evdev` Input Stack (`button-devinput.c`)
+Rockbox reads raw input events from the Linux input subsystem (`/dev/input/eventX`), bypassing X11 or Wayland.
+
+**Event Parsing:**
+The driver polls multiple file descriptors (keypad, touchscreen, scrollwheel) and aggregates them.
+
+```c
+/* firmware/target/hosted/button-devinput.c */
+struct input_event ev;
+read(fd, &ev, sizeof(ev));
+
+if (ev.type == EV_KEY) {
+    /* Map Linux KEY_POWER to Rockbox BUTTON_POWER */
+    int btn = button_map(ev.code);
+    if (ev.value == 1)
+        button_bitmap |= btn; /* Press */
+    else
+        button_bitmap &= ~btn; /* Release */
+}
+```
+**Scroll Wheel Handling:**
+For devices like the Samsung YP-R0, the scroll wheel driver emits `EV_REL` events. Rockbox accumulates these deltas (`ev.value`) and posts a `BUTTON_SCROLL_FWD/BACK` event when the threshold is crossed.
+
+### 5.3 ALSA Asynchronous Callbacks (`pcm-alsa.c`)
+Advanced Linux ports use ALSA (Advanced Linux Sound Architecture). To maintain low latency, they use the `snd_async_handler` mechanism to simulate interrupts.
+
+```c
+/* firmware/target/hosted/pcm-alsa.c */
+void pcm_alsa_handler(snd_async_handler_t *ahandler)
+{
+    snd_pcm_t *handle = snd_async_handler_get_pcm(ahandler);
+    snd_pcm_sframes_t avail;
+
+    /* Check how much space is in the ring buffer */
+    avail = snd_pcm_avail_update(handle);
+
+    if (avail >= period_size) {
+        /* Request more data from Rockbox */
+        pcm_play_dma_complete_callback(PCM_DMAST_OK, &ptr, &size);
+
+        /* Write to ALSA buffer */
+        snd_pcm_writei(handle, ptr, size);
+    }
+}
+```
+This is the closest approximation to the ESP32's DMA interrupt model. The `avail >= period_size` check ensures we fill the buffer in fixed chunks, minimizing wakeups.
 
 ---
 
-## 6. Golden Maxims for ESP32 Porting
+## 6. Comparative Architecture Matrix
+This table summarizes how different subsystems are abstracted across targets.
+
+| Feature | Bare Metal (ARM) | Hosted (SDL/Linux) | Android (JNI) | Linux Native (Maemo) | ESP32 (Proposed) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Scheduler** | ASM Context Switch | Pthreads + Global Lock | Pthreads + Global Lock | Pthreads + Global Lock | FreeRTOS Tasks |
+| **Tick Source** | Hardware Timer IRQ | `SIGALRM` / `SDL_Delay` | `Thread.sleep()` | `SIGALRM` / `timerfd` | FreeRTOS Tick |
+| **Display** | LCD Controller Registers | SDL Window / X11 | Android Surface / Bitmap | `/dev/fb0` `mmap` | SPI DMA (esp_lcd) |
+| **Audio** | I2S DMA Interrupts | ALSA / PulseAudio | `AudioTrack.write()` | ALSA Async Callback | I2S DMA (driver) |
+| **Storage** | ATA/SD Registers | POSIX `fopen`/`fread` | POSIX (via VFS) | POSIX `open`/`read` | POSIX (via VFS) |
+| **Input** | GPIO Scanning | Keyboard/Mouse Events | Touch Events | `/dev/input/eventX` | GPIO ISR / ADC |
+| **Panic** | Screen Dump + loop | `abort()` / `gdb` | Logcat stacktrace | Terminal dump | ESP Panic / Backtrace |
+
+---
+
+## 7. Golden Maxims for ESP32 Porting
 From the analysis of these historical ports, we derive the following "Golden Maxims" for the ESP32 port.
 
-### 6.1 "Don't Fight the Host OS"
+### 7.1 "Don't Fight the Host OS"
 The Android port succeeded because it didn't try to access audio hardware directly; it used `AudioTrack`.
 *   **ESP32 Application:** Do not bang I2S registers manually. Use the ESP-IDF `driver/i2s` API. It handles the DMA interrupts and ring buffers for us, acting like the Android AudioTrack.
 
-### 6.2 "The Big Malloc"
+### 7.2 "The Big Malloc"
 All hosted ports allocate a single large chunk of memory for Rockbox's internal allocator.
 *   **ESP32 Application:** We must allocate the 4MB/8MB PSRAM chunk immediately at boot and hand it to `core_alloc`. Attempting to use system `malloc` for small Rockbox objects is inefficient and fragmenting.
 
-### 6.3 "The Event Loop Bridge"
+### 7.3 "The Event Loop Bridge"
 Hosted ports translate OS events (Keypress, Touch) into Rockbox Queue events.
 *   **ESP32 Application:** We need a FreeRTOS task (or ISR) that monitors GPIOs/Touch and simply pushes `BUTTON_HOME` or `BUTTON_POWER` into the `button_queue`. Do not put logic in the ISR.
 
-### 6.4 "Filesystem Transparency"
+### 7.4 "Filesystem Transparency"
 The Hosted logic uses standard `open/read` calls.
 *   **ESP32 Application:** By mounting the SD card via ESP-IDF's VFS at `/sdcard`, we can reuse 99% of Rockbox's file handling code (`firmware/common/file.c`) without modification, as long as we shim `open()` to prepend the mount point.
 
-### 6.5 "Cooperative Simulation"
+### 7.5 "Cooperative Simulation"
 We do not need the heavy "Global Lock" of the SDL port because ESP32 has 2 cores and FreeRTOS handles preemption gracefully. However, we must ensure that the **Main Thread** (Core 1) is not starved by high-priority interrupts (WiFi on Core 0) or the Audio Feeder task.
 
 ---
 
-## 7. Deep Dive: The `uisimulator` Input Stack
+## 8. Deep Dive: The `uisimulator` Input Stack
 The input handling in the simulator differs significantly from the hardware. It uses the host OS event loop to pump messages.
 
-### 7.1 SDL Event Loop
+### 8.1 SDL Event Loop
 The `sim_do_exit` function loop in `bootloader/sim_main.c` (or equivalent) handles this.
 ```c
 void gui_input_loop(void)
@@ -247,10 +335,10 @@ void gui_input_loop(void)
 
 ---
 
-## 8. Deep Dive: Android Storage Scoping
+## 9. Deep Dive: Android Storage Scoping
 Android versions > 10 restrict file access. Rockbox on Android had to adapt.
 
-### 8.1 The Storage Abstraction Layer
+### 9.1 The Storage Abstraction Layer
 Rockbox uses `storage.c` to abstract block devices. On Android, it doesn't use `storage.c` for reading music files directly; it uses the file system.
 *   **Issue:** Android's Storage Access Framework (SAF) returns `content://` URIs, not paths.
 *   **Workaround:** Rockbox typically asks for "All Files Access" permission or targets legacy storage to get `/sdcard/Music` paths.
@@ -258,7 +346,7 @@ Rockbox uses `storage.c` to abstract block devices. On Android, it doesn't use `
 
 ---
 
-## 9. The Maemo D-Bus Integration
+## 10. The Maemo D-Bus Integration
 On Nokia N900 (Maemo), Rockbox integrates with the Linux desktop bus (D-Bus).
 *   **Purpose:** Allows the media keys on the lock screen to control Rockbox.
 *   **Implementation:** A separate thread listens on the D-Bus socket. When `org.rockbox.pause` is received, it posts `BUTTON_PLAY | BUTTON_REL` to the Rockbox queue.
@@ -266,7 +354,7 @@ On Nokia N900 (Maemo), Rockbox integrates with the Linux desktop bus (D-Bus).
 
 ---
 
-## 10. Hosted Graphics: Scaling and Rotation
+## 11. Hosted Graphics: Scaling and Rotation
 The simulator can run at the native resolution (e.g., 128x64) or scaled up.
 *   **Logic:** The framebuffer is kept at native resolution.
 *   **Blitting:** `lcd-sdl.c` performs a nearest-neighbor scaling when copying the framebuffer to the SDL Texture.
@@ -289,7 +377,7 @@ void lcd_update(void) {
 ```
 **ESP32 Application:** We will use `esp_lcd`'s hardware rotation capabilities if available, or Rockbox's software rotation if the display controller is dumb.
 
-## 11. Code Dump: `thread-sdl.c` Analysis
+## 12. Code Dump: `thread-sdl.c` Analysis
 This section analyzes the verbatim code of the hosted thread implementation to understand the locking strategy deeply.
 
 ```c
@@ -319,7 +407,7 @@ unsigned int create_thread(void (*function)(void), ...) {
 
 **Key Takeaway:** The Semaphore `s` is the "Gatekeeper". Even though the thread is created by the OS immediately, `runthread` (see Section 2.1) calls `SDL_LockMutex(m)` immediately. If the Main Thread holds `m`, the new thread blocks instantly. This preserves the single-core illusion. It only runs when the Main Thread (or current thread) calls `switch_thread` and releases `m`.
 
-## 12. Audio Latency in Hosted Ports
+## 13. Audio Latency in Hosted Ports
 One of the biggest challenges in hosted ports is audio latency.
 *   **Rockbox Native:** Buffer -> DAC (< 10ms latency).
 *   **SDL (Win32):** Buffer -> SDL -> DirectSound -> Driver -> DAC (> 50ms latency).
