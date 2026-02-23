@@ -162,3 +162,178 @@ Rockbox takes over the CPU's interrupt vector table.
 5.  Restore context.
 
 This architecture ensures Rockbox can play gapless audio with <10ms latency even on 50MHz CPUs.
+
+---
+
+## 5. The System Life-Cycle: From Reset to Root Menu
+This section traces the execution path from the C entry point to the user interface, highlighting the kernel initialization steps.
+
+### 5.1 The `main()` Entry (`apps/main.c`)
+The `crt0.S` assembly jumps here.
+```c
+/* apps/main.c */
+int main(void)
+{
+    /* 1. Hardware & Kernel Init */
+    init();
+
+    /* 2. Subsystem Init */
+    list_init();
+    tree_init();
+
+    /* 3. Enter Main Loop */
+    root_menu(); /* Does not return */
+}
+```
+
+### 5.2 The `init()` Sequence (`firmware/system.c` & `kernel.c`)
+The `init()` function is the "Big Bang" of the OS.
+```c
+/* firmware/common/init.c (Conceptual) */
+void init(void) {
+    /* 1. Low-level Hardware */
+    system_init();      /* PLL, Caches, GPIOs */
+    kernel_init();      /* Scheduler, Queues */
+
+    /* 2. Drivers */
+    i2c_init();
+    adc_init();
+    usb_init();
+
+    /* 3. Storage */
+    storage_init();
+    fat_init();
+
+    /* 4. Audio Core */
+    audio_init();       /* Starts Codec Thread */
+
+    /* 5. User Interface */
+    lcd_init();
+    button_init();
+}
+```
+
+### 5.3 Thread Spawning
+During initialization, Rockbox spawns its worker threads.
+*   **Main Thread:** The thread executing `main()` becomes the UI thread.
+*   **Audio Thread:** Created in `audio_init()`, handles disk I/O and buffering.
+*   **Codec Thread:** Created in `audio_init()`, handles decoding.
+*   **Disk Thread:** Handles ATA/SD access (on some targets).
+
+---
+
+## 6. The Allocator Deep Dive: `core_alloc` vs `malloc`
+Rockbox uses a dual-allocator strategy. Standard `malloc` is rarely used (often stubbed out). Instead, `core_alloc` manages the bulk of RAM.
+
+### 6.1 The Buffer Library (`buflib`)
+`buflib` is a compactable, movable memory allocator.
+*   **Context:** `struct buflib_context core_ctx`.
+*   **Memory Pool:** It owns the entire `audiobuf`.
+*   **Handles:** Allocations return an integer handle, not a pointer.
+*   **Compaction:** When memory is fragmented, `buflib_compact()` moves allocated blocks to create contiguous free space. This requires that users lock/unlock handles or use callbacks.
+
+**Usage in Apps:**
+```c
+/* apps/buffering.c */
+int buffer_handle = core_alloc(1024 * 1024); /* Allocate 1MB */
+char *ptr = core_get_data(buffer_handle);    /* Get Pointer */
+/* ... use ptr ... */
+/* Pointer might become invalid if another thread calls core_alloc! */
+```
+**Constraint:** Codecs and Plugins execute *inside* the `audiobuf`. The allocator effectively partitions the free space between "Audio Data" and "Code".
+
+### 6.2 The Compaction Algorithm
+The compaction logic is a critical piece of the system stability.
+1.  **Trigger:** `core_alloc` fails to find a contiguous block.
+2.  **Move:** It iterates through allocated blocks, moving them towards the start of the buffer.
+3.  **Relocation:** Since Rockbox doesn't use MMU virtual addressing, the *physical* data is moved using `memmove`.
+4.  **Callbacks:** If a block is "active" (e.g., the codec is decoding it), it must not be moved. Owners register callbacks to be notified or use `core_pin()` to lock the block in place temporarily.
+
+---
+
+## 7. The Message Bus: `queue` Logic
+The `queue` subsystem drives the event-loop architecture of `apps/`.
+
+### 7.1 The Event Loop (`apps/action.c`)
+The main thread sits in a loop consuming events.
+```c
+long get_action(int context, int timeout) {
+    struct event ev;
+    /* Block until button press or system event */
+    queue_wait_w_tmo(&button_queue, &ev, timeout);
+
+    switch (ev.id) {
+        case BUTTON_HOME: return ACTION_STD_OK;
+        case SYS_USB_CONNECTED: return ACTION_USB_PLUG;
+    }
+}
+```
+
+### 7.2 Broadcasts (`queue_broadcast`)
+System-wide events (USB plug, Charger connect) are broadcast to all registered queues.
+*   **Registry:** `all_queues[]` array in `firmware/kernel/queue.c`.
+*   **Mechanism:** Iterates over all queues and posts the event.
+*   **Sync vs Async:** Most events are async (fire and forget). Some system events wait for acknowledgment.
+
+---
+
+## 8. The Kernel-App Interface (KAI)
+`apps/` code interacts with the kernel via a specific set of exported functions (`firmware/export/`).
+
+### 8.1 Critical Exports
+*   **`sleep(ticks)`**: Cooperative yield. Essential for battery life.
+*   **`yield()`**: Give up timeslice to other threads.
+*   **`mutex_lock/unlock`**: Protect shared structures (like `global_settings`).
+*   **`splash(ticks, str)`**: Simple blocking UI message (uses `sleep` internally).
+
+### 8.2 The Kernel Event Loop Diagram
+This diagram visualizes the flow of control in the Rockbox Kernel.
+
+```mermaid
+graph TD
+    A[Hardware Interrupt] -->|IRQ| B(Interrupt Vector)
+    B --> C{Wake Thread?}
+    C -->|Yes| D[Modifies Run Queue]
+    C -->|No| E[Return from IRQ]
+    D --> F[Preempt Current Thread]
+    F --> G[Context Switch]
+
+    H[App Thread] -->|Call yield/sleep| I[Switch Thread]
+    I --> J[Scheduler]
+    J -->|Select Highest Prio| K[Next Thread]
+    K --> G
+
+    L[Button Driver] -->|Queue Post| M[Button Queue]
+    M -->|Wake| H
+```
+
+*(Note: Mermaid syntax is provided for reference, but Rockbox docs usually use ASCII)*
+
+**ASCII Version:**
+```text
+      [ Hardware IRQ ]         [ Application Thread ]
+             |                          |
+             v                          v
+      [ Interrupt Vector ]      [ call sleep() ]
+             |                          |
+             v                          v
+      [ Wakeup Thread X ]       [ Remove from RunQ ]
+             |                          |
+             v                          v
+      [ Set Need_Switch ]       [ Call switch_thread ]
+             |                          |
+             +-----------+--------------+
+                         |
+                         v
+                [ SCHEDULER CORE ]
+                         |
+          (Picks Highest Priority Runnable)
+                         |
+                         v
+                [ CONTEXT SWITCH ASM ]
+                         |
+             +-----------+--------------+
+             |                          |
+             v                          v
+      [ Restore Thread X ]      [ Restore Thread Y ]
+```
