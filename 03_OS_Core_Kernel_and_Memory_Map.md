@@ -249,6 +249,32 @@ The compaction logic is a critical piece of the system stability.
 3.  **Relocation:** Since Rockbox doesn't use MMU virtual addressing, the *physical* data is moved using `memmove`.
 4.  **Callbacks:** If a block is "active" (e.g., the codec is decoding it), it must not be moved. Owners register callbacks to be notified or use `core_pin()` to lock the block in place temporarily.
 
+#### Detailed Logic of `buflib_compact`:
+```c
+/* Pseudo-code logic of buflib.c */
+void buflib_compact(struct buflib_context *ctx)
+{
+    struct alloc_header *h;
+
+    /* Iterate over all blocks */
+    for (h = first_block; h != NULL; h = h->next) {
+        if (h->val.pinned) continue; /* Cannot move pinned blocks */
+
+        /* Calculate gap between this block and previous */
+        size_t gap = h->data - prev_end;
+        if (gap > 0) {
+            /* Move Memory */
+            memmove(prev_end, h->data, h->size);
+
+            /* Update callbacks */
+            if (h->ops && h->ops->move_callback) {
+                h->ops->move_callback(h->handle, prev_end);
+            }
+        }
+    }
+}
+```
+
 ---
 
 ## 7. The Message Bus: `queue` Logic
@@ -337,3 +363,93 @@ graph TD
              v                          v
       [ Restore Thread X ]      [ Restore Thread Y ]
 ```
+
+---
+
+## 9. The Time Subsystem (`firmware/kernel/tick.c`)
+Rockbox maintains a monotonic system clock driven by a hardware timer. This clock drives `sleep()`, timeouts, and the user-visible clock.
+
+### 9.1 The Tick List
+The kernel maintains a list of "Tick Tasks" (`tick_funcs[]`). These are lightweight functions called directly from the Timer ISR every 10ms (100Hz) or 1ms (1000Hz).
+*   **Registration:** Drivers call `tick_add_task(my_func)` during init.
+*   **Context:** Run in IRQ context (cannot sleep/block).
+
+**Typical Tick Tasks:**
+*   `button_tick()`: Scans GPIO matrix.
+*   `timeout_tick()`: Decrements software timers.
+*   `disk_tick()`: Manages spin-down timeouts.
+*   `usb_tick()`: Monitors USB bus state.
+
+### 9.2 The Timeout API (`firmware/kernel/timeout.c`)
+Software timers are built on top of the Tick List.
+*   **Struct:** `struct timeout` contains a callback and expiration tick.
+*   **One-Shot:** The `timeout_tick` function checks if `current_tick >= expires`. If so, it calls the callback and removes the timer.
+*   **Debouncing:** `button.c` uses `timeout_register` to debounce headphone insertion events.
+
+```c
+/* Example Timeout Usage */
+static struct timeout my_timer;
+
+void my_callback(struct timeout *t) {
+    /* Handle timeout */
+}
+
+void start_timer(void) {
+    timeout_register(&my_timer, my_callback, HZ/2, 0);
+}
+```
+
+---
+
+## 10. Cross-Domain Interaction Map ("The Everything Map")
+This massive table maps exactly how the Kernel/Firmware primitives are consumed by the upper layers (`apps/`, `lib/`).
+
+| Kernel Primitive | Firmware Driver Consumer | Library Consumer (`lib/`) | App Consumer (`apps/`) |
+| :--- | :--- | :--- | :--- |
+| **`tick_add_task`** | `button.c` (Scanning), `ata.c` (Spinup) | N/A | N/A (Apps use queues) |
+| **`queue_post`** | `button.c` -> `button_queue`, `usb.c` -> `usb_queue` | N/A | `action.c` (Simulated events) |
+| **`queue_wait`** | `usb_core.c` (Control transfers) | N/A | `main.c` (Event Loop) |
+| **`mutex_lock`** | `fat.c` (FAT cache protection) | `codeclib` (Thread safety) | `settings.c` (Global settings) |
+| **`core_alloc`** | `disk_cache.c` (Sector cache) | `codecs.c` (Overlay RAM) | `buffering.c` (Audio buffer) |
+| **`create_thread`** | `usb_core.c` (USB Thread) | `rbcodec` (Codec Thread) | `audio.c` (Audio Thread) |
+| **`yield`** | `ata.c` (PIO Polling) | `libmad` (Decoding loop) | `recorder.c` (Encoding loop) |
+| **`dma_start`** | `sd-as3525.c` (Sector Xfer) | N/A | N/A |
+| **`pcmbuf_insert`** | N/A | `libfaad` (Audio Output) | `playback.c` (Buffering logic) |
+| **`lcd_update`** | `bootloader/main.c` | `pluginlib` (Plugin UI) | `gui/screen_access.c` |
+
+---
+
+## 11. Kernel Control Flow Diagram (ASCII)
+This diagram illustrates the "Lifecycle of an Input Event" traversing all layers.
+
+```text
+       HARDWARE LAYER             KERNEL LAYER              APP LAYER
+    (firmware/drivers)         (firmware/kernel)         (apps/action.c)
+    ==================         =================         ===============
+
+    [ GPIO Change ]                  |                          |
+           |                         |                          |
+           v                         |                          |
+    [ Timer IRQ ]------------------->|                          |
+           |                         |                          |
+           v                         |                          |
+    [ button_tick() ]                |                          |
+           |                         |                          |
+           +----(Read GPIO)          |                          |
+           |                         |                          |
+           v                         |                          |
+    [ button_queue_post ]----------->[ Event Queue ]            |
+                                     [ (Blocked Thread) ]       |
+                                             |                  |
+                                             v                  |
+                                     [ Scheduler: Wake ]------->[ get_action() ]
+                                                                |
+                                                                v
+                                                         [ Map Button -> Action ]
+                                                                |
+                                                                v
+                                                         [ Handle ACTION_NEXT ]
+```
+
+## 12. Conclusion
+The Rockbox kernel is a purpose-built engine optimized for media playback. Every component, from the assembly context switch to the `buflib` allocator, is designed to serve the audio pipeline. Understanding these deep interconnections is prerequisite to any porting effort.
