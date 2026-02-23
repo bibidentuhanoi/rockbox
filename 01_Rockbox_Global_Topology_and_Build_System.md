@@ -1,5 +1,8 @@
 # 01_Rockbox_Global_Topology_and_Build_System.md
 
+## Abstract
+This document provides a comprehensive map of the Rockbox repository, detailing the 6-level deep directory structure, the legacy build system orchestrated by Perl and Make, and the cross-compilation toolchain. It explores how the `configure` script dynamically generates `autoconf.h` to manage the massive variability of supported embedded targets (ARM, ColdFire, MIPS) and how the linker scripts (`.lds`) enforce a strict bare-metal memory layout.
+
 ## 1. The Master Archaeological Map
 This document serves as the foundational map for the Rockbox codebase, a 20+ year-old open-source firmware project designed for portable media players. The architecture reflects a "bare-metal" design philosophy from the early 2000s, where every byte of RAM and every CPU cycle was precious.
 

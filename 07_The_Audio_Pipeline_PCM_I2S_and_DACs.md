@@ -1,5 +1,8 @@
 # 07_The_Audio_Pipeline_PCM_I2S_and_DACs.md
 
+## Abstract
+This document traces the path of digital audio from the codec output to the analog DAC. It analyzes the double-buffered DMA logic in `pcm.c` that feeds the I2S controller, the interrupt-driven refill mechanism that ensures gapless playback, and the hardware-specific I2C commands used to configure external DACs and ASRC (Asynchronous Sample Rate Converter) chips.
+
 ## 1. The Audio Pipeline Overview
 The audio pipeline is the heart of Rockbox. It ensures glitch-free playback by meticulously managing data flow from disk to DAC.
 

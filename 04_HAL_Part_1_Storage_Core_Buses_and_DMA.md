@@ -1,5 +1,8 @@
 # 04_HAL_Part_1_Storage_Core_Buses_and_DMA.md
 
+## Abstract
+This document explores the foundational storage and bus abstraction layers. It provides a deep dive into the 10-level stack of the SD/MMC driver, from the kernel's `read_sectors` request down to the physical wire protocol and the PL081 DMA controller's descriptors. It also examines the custom, highly optimized FAT16/32 implementation that bypasses standard libraries for maximum performance on bare-metal targets.
+
 ## 1. The Hardware Abstraction Layer (HAL)
 Rockbox isolates hardware specifics through a comprehensive HAL in `firmware/target/` and `firmware/drivers/`. This allows the same FAT filesystem code (`fat.c`) to run on an iPod (IDE/ATA), a Sansa (SD/MMC), or an Android phone (Java/JNI).
 

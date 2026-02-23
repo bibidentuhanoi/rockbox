@@ -1,5 +1,8 @@
 # 06_The_Audio_Engine_Codecs_and_DSP.md
 
+## Abstract
+This document explores the high-level audio playback engine, which orchestrates file buffering, codec decoding, and digital signal processing. It details the aggressive RAM buffering strategy that minimizes disk spin-up, the fixed-point arithmetic optimizations (`FRAC_MUL`) essential for real-time decoding on FPU-less cores, and the modular DSP chain that implements 5-band parametric EQ, crossfeed, and resampling in software.
+
 ## 1. The Audio Engine (`apps/playback.c`)
 The Rockbox audio engine is a masterpiece of embedded engineering. It manages decoding, buffering, DSP processing, and playback seamlessly on resource-constrained devices. It runs as a high-priority thread (`PRIORITY_PLAYBACK`).
 

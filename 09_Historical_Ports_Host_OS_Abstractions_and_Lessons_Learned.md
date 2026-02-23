@@ -1,5 +1,8 @@
 # 09_Historical_Ports_Host_OS_Abstractions_and_Lessons_Learned.md
 
+## Abstract
+This document analyzes how Rockbox evolved from a bare-metal firmware into a "Hosted" guest OS that can run atop Linux, Android, and Windows. It examines the critical abstraction layers in `firmware/target/hosted/` that map Rockbox's cooperative scheduler to POSIX pthreads (`thread-sdl.c`), emulate the framebuffer in an SDL window, and route audio through host OS APIs (ALSA/AudioTrack). These historical lessons provide the blueprint for the ESP32 port.
+
 ## 1. The "Hosted" Architecture Paradigm
 Rockbox was originally designed for bare-metal systems (sh-1, ColdFire). However, the developers soon realized the value of running Rockbox *inside* another operating system for development, simulation, and later, porting to Android.
 

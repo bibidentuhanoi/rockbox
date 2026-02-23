@@ -1,5 +1,8 @@
 # 08_Applications_GUI_and_The_Plugin_Paradox.md
 
+## Abstract
+This document explores the upper layers of the Rockbox stack: the User Interface engine and the dynamic plugin system. It dissects the `frame_buffer_t` abstraction that allows drawing operations to be hardware-agnostic, the event loop in `action.c`, and the ingenious ELF loader (`elf_loader.c`) that enables position-independent code execution and runtime linking via the `plugin_api` trampoline, effectively creating a "shared library" mechanism without an OS.
+
 ## 1. The GUI Framework (`apps/gui/`)
 The Graphical User Interface (GUI) is built on top of the HAL display drivers. It manages windows, viewports, bitmaps, fonts, and the main event loop.
 

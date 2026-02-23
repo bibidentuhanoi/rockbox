@@ -1,5 +1,8 @@
 # 02_Bootloader_and_Hardware_Initialization.md
 
+## Abstract
+This document traces the boot process from the moment of power-on reset (POR) to the transfer of control to the main kernel. It analyzes the dual-stage bootloader architecture, the raw assembly startup code (`crt0.S`) responsible for setting up the C runtime environment (stack, BSS, vectors), and the critical hardware initialization sequence that configures the PLL, SDRAM, and caches before the OS can run.
+
 ## 1. The Bootloader Architecture
 The Rockbox bootloader (`bootloader/`) is a minimal firmware shim designed to coexist with the original manufacturer's firmware (OF). It typically resides in a reserved flash sector or is appended to the OF image. Its primary purpose is to initialize basic hardware (SDRAM, LCD, Storage) and load the main Rockbox payload (`rockbox.mi4`, `rockbox.ipod`, etc.) into RAM.
 

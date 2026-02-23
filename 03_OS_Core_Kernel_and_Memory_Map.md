@@ -1,5 +1,8 @@
 # 03_OS_Core_Kernel_and_Memory_Map.md
 
+## Abstract
+This document dissects the bespoke Rockbox kernel, a custom cooperative/preemptive hybrid scheduler designed for extreme efficiency on single-core embedded CPUs. It analyzes the `struct thread_entry` control block, the assembly-optimized context switching logic, and the flat memory model that statically partitions RAM into the kernel, stack, and the massive `audiobuf` ring buffer.
+
 ## 1. The Kernel Architecture: Threads & Scheduling
 Rockbox implements a bespoke cooperative/preemptive hybrid kernel. It is not POSIX-compliant, nor does it use a standard RTOS like FreeRTOS or ThreadX. It was built from scratch to be extremely lightweight (measured in kilobytes) and deterministic for audio playback.
 

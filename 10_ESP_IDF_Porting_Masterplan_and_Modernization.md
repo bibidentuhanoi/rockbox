@@ -1,5 +1,8 @@
 # 10_ESP_IDF_Porting_Masterplan_and_Modernization.md
 
+## Abstract
+This final document synthesizes the archaeological findings into a concrete engineering strategy for porting Rockbox to the ESP32 using the ESP-IDF framework. It outlines the transition from `configure/make` to `CMake`, the mapping of Rockbox's cooperative threads to pinned FreeRTOS tasks to handle the dual-core architecture, and the critical use of PSRAM for the `audiobuf`. It also addresses the Harvard Architecture constraints that necessitate a static compilation approach for plugins.
+
 ## 1. The Modernization Mandate
 The final phase of this architectural excavation is to design the definitive porting strategy for the ESP32 using the Espressif IoT Development Framework (ESP-IDF). We will pivot from the legacy Perl/Make system to a modern CMake component-based build.
 

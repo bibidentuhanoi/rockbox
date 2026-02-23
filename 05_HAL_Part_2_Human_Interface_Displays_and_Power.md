@@ -1,5 +1,8 @@
 # 05_HAL_Part_2_Human_Interface_Displays_and_Power.md
 
+## Abstract
+This document examines the human interface and power subsystems, focusing on the "Visual Cortex" (LCD/OLED drivers), the Input Matrix scanning logic, and the Power Management Interface (PMIC). It provides a 12-level deep dive into the AS3525 DBOP LCD driver, tracing the execution path from the high-level GUI API down to the physical photon emission logic of the OLED panel, and analyzes the electrochemical models used for battery monitoring.
+
 ## 1. Display Controllers (The Visual Cortex)
 Rockbox supports a bewildering array of display technologies: Mono OLED, Color LCD, Greyscale, Parallel 8/16-bit, SPI, and MIPI (on newer targets). The driver interface is standardized (`lcd-*.c`), allowing the UI engine to draw pixels without caring about the underlying bus.
 
