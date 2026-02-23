@@ -146,3 +146,178 @@ Used for playback speed control (pitch shifting) or sample rate conversion (44.1
 ## 4. Crossfeed & Spatialization
 Rockbox includes a Meier Crossfeed filter to reduce listening fatigue with headphones. It mixes a delayed, low-pass filtered signal from the left channel into the right channel (and vice-versa) to simulate speaker listening.
 *   **Implementation:** Simple delay line + First-order Low Pass Filter.
+
+---
+
+## 5. The Kernel Linkage: Threads and Priorities
+The Audio Engine is not a monolithic loop; it spans multiple kernel threads interacting via IPC.
+
+### 5.1 The Audio Thread (`apps/audio_thread.c`)
+This is the conductor. It sits in `apps/` (userland) but manages the `codec_thread` and `pcm_driver`.
+*   **Priority:** `MIN(PRIORITY_BUFFERING, PRIORITY_USER_INTERFACE)`. It runs higher than background tasks (Database scan) but lower than the Realtime Mixer.
+*   **Responsibility:** It does **not** decode audio. It manages the File I/O (`buffer_fill`) and Playlist logic.
+*   **Message Loop:**
+    ```c
+    while(1) {
+        queue_wait(&audio_queue, &ev);
+        switch(ev.id) {
+            case Q_AUDIO_PLAY:
+                codec_load(track); // Loads ELF
+                codec_run();       // Starts Codec Thread
+                break;
+        }
+    }
+    ```
+
+### 5.2 The Codec Thread (`apps/codec_thread.c`)
+This thread is spawned by the Audio Thread. It executes the actual decoder loop (e.g., `libmad` logic).
+*   **Priority:** Dynamic. It starts low but can be boosted via `trigger_cpu_boost()` if the PCM buffer runs low (`PRIORITY_PLAYBACK` -> `PRIORITY_REALTIME`).
+*   **Boosting:**
+    ```c
+    /* Inside codec loop */
+    if (pcmbuf_free() > THRESHOLD) {
+        trigger_cpu_boost(); /* Raise CPU clock to Max */
+    } else {
+        cancel_cpu_boost();  /* Drop to idle clock to save power */
+    }
+    ```
+
+---
+
+## 6. The HAL Linkage (The PCM Barrier)
+The boundary between "Software Audio" (Codecs/DSP) and "Hardware Audio" (DAC/I2S) is the PCM Buffer.
+
+### 6.1 `pcmbuf_insert` vs `pcm_play_data`
+*   **Codec Output:** Codecs call `ci->pcmbuf_insert()`. This writes to the **Software Ring Buffer** (in SDRAM).
+*   **DSP Processing:** Data sits here waiting for the DSP chain.
+*   **HAL Input:** The PCM Driver (`firmware/pcm.c`) calls `pcm_play_data()` to initiate DMA transfers.
+    *   **The Glue:** When the DMA interrupt fires (Buffer A done), the ISR calls the registered callback `get_more()`.
+    *   **The Callback:** `pcmbuf_callback()` (in `apps/pcmbuf.c`) runs the DSP chain *on demand* to fill Buffer A with fresh processed samples.
+
+### 6.2 The Mixer (`pcm_mixer.c`)
+Rockbox supports mixing voice prompts (menus) over music.
+*   **Mechanism:** The `pcmbuf_callback` doesn't just copy music; it calls `mixer_process()`.
+*   **Mixing:** It adds Voice PCM data to Music PCM data (with saturation protection) before writing to the DMA buffer.
+
+---
+
+## 7. Codec Overlay & Memory Management
+Codecs are not linked into the main firmware binary (`rockbox.elf`). They are dynamic overlays.
+
+### 7.1 The Overlay Mechanism
+*   **Location:** The `audiobuf` (MP3 data) and the Codec Binary (`.codec`) share the same RAM region (`BUFLIB_CONTEXT_MAIN`).
+*   **Allocation:** When a track starts:
+    1.  `audio_thread` requests a block for the codec via `core_alloc()`.
+    2.  `buflib` compacts existing audio data to make room at the *end* of the buffer.
+    3.  The codec ELF is loaded into this high-memory block.
+*   **Implication:** Larger codecs (WMA, Vorbis) leave less room for audio buffering, reducing battery life (disk spins up more often).
+
+### 7.2 The API Trampoline
+Since codecs are separate binaries, they cannot call kernel functions (`sleep`, `read`) directly.
+*   **`struct codec_api`:** A table of function pointers passed to `codec_start()`.
+*   **Usage:**
+    ```c
+    /* Inside Codec */
+    ci->read_filebuf(ptr, size); // Calls back into firmware
+    ```
+
+---
+
+## 8. Vertical Slice Diagram: The Audio Stack
+This diagram traces the complete path of an audio byte from Storage to Speaker.
+
+```text
+LAYER               COMPONENT                  FUNCTION
+=====               =========                  ========
+[ APP ]             Audio Thread               Orchestrates File I/O
+                         |
+                         v (loads)
+                    Codec Thread               Decodes MP3 -> PCM
+                         |
+[ LIB ]                  v (ci->pcmbuf_insert)
+                    Software Ring Buffer       Holds raw PCM (SDRAM)
+                         |
+                         v (callback)
+                    DSP Chain                  EQ, Crossfeed, Volume
+                         |
+                         v (mixed)
+                    Mixer Buffer               Final Audio Frame
+                         |
+[ FIRMWARE ]             v (dma_start)
+                    PCM Driver                 Manages DMA transfers
+                         |
+                         v (AHB Bus)
+[ HARDWARE ]        DMA Controller             Push to I2S FIFO
+                         |
+                         v (I2S Bus)
+                    DAC Chip                   Digital -> Analog
+                         |
+                    Headphones                 Sound
+```
+
+## 9. Latency vs. Throughput
+The system is tuned for **Throughput** (Battery Life), not Latency.
+*   **High Latency:** The DSP chain runs ahead of the DMA by several frames to ensure the CPU can sleep.
+*   **Synchronization:** The UI (Spectrum Analyzer) must account for this latency. The `pcm_get_realtime()` function subtracts the DMA buffer depth to guess the actual sound being heard.
+
+---
+
+## 10. Source Code Dump: The Codec-to-PCM Bridge
+The following code snippet (reconstructed from `pcmbuf.c` and `dsp.c`) illustrates the critical "Pull" mechanism where the DMA interrupt drives the DSP chain.
+
+```c
+/* apps/pcmbuf.c */
+static void pcmbuf_callback(const void **start, size_t *size)
+{
+    /* 1. Calculate how much space the DMA needs */
+    size_t needed = *size;
+
+    /* 2. Check if we have enough decoded data in the Ring Buffer */
+    if (pcmbuf_read_level() < needed) {
+        /* UNDERRUN! */
+        /* Wake codec thread immediately */
+        trigger_cpu_boost();
+        queue_post(&codec_queue, CODEC_DECODE);
+
+        /* Feed silence to avoid buzzing */
+        memset(dma_buffer, 0, needed);
+        return;
+    }
+
+    /* 3. Run the DSP Chain */
+    /* This processes data from Ring Buffer -> DMA Buffer */
+    dsp_process(dma_buffer, needed);
+
+    /* 4. Update Ring Buffer Pointers */
+    pcmbuf_advance(needed);
+
+    /* 5. Return the filled buffer to the Driver */
+    *start = dma_buffer;
+}
+
+/* lib/rbcodec/dsp/dsp.c */
+void dsp_process(int16_t *dest, size_t count)
+{
+    int32_t sample[2];
+
+    for (int i = 0; i < count/4; i++) { /* Stereo 16-bit = 4 bytes */
+        /* Read Source */
+        sample[0] = *ring_ptr_l++;
+        sample[1] = *ring_ptr_r++;
+
+        /* Apply EQ */
+        sample[0] = eq_process(sample[0]);
+        sample[1] = eq_process(sample[1]);
+
+        /* Apply Volume */
+        sample[0] = (sample[0] * global_volume) >> 16;
+        sample[1] = (sample[1] * global_volume) >> 16;
+
+        /* Write Dest */
+        *dest++ = clip(sample[0]);
+        *dest++ = clip(sample[1]);
+    }
+}
+```
+
+This interaction confirms that **Hardware Interrupts drive the Software Logic**. The Codec thread is a "Producer" that fills the ring buffer, and the DMA ISR is a "Consumer" that drains it via the DSP chain.
