@@ -414,7 +414,134 @@ Plugins are compiled separately but live in the source tree.
     *   **Viewers:** Text viewer, JPEG viewer.
 *   **Build:** `apps/plugins/Makefile` handles the compilation of `.rock` files using the `plugin_api`.
 
-## 8. Summary
+---
+
+## 8. The Application-Firmware Interface (AFI)
+The interaction between `apps/` (Application Layer) and `firmware/` (Kernel/HAL) is not mediated by system calls (syscalls). Instead, it relies on direct function calls to APIs defined in `firmware/export/`. This "Monolithic Linking Model" means the entire firmware is a single executable binary.
+
+### 8.1 The `global_settings` Nervous System
+The `global_settings` struct (defined in `apps/settings.h`) is the central repository for user configuration. It acts as the primary data bridge between the UI and the hardware drivers.
+
+**How Settings Propagate:**
+1.  **User Action:** User changes "Backlight Timeout" in the menu.
+2.  **Logic:** `apps/settings.c` updates `global_settings.backlight_timeout`.
+3.  **Driver Update:** The backlight thread (in `firmware/drivers/backlight.c`) polls this variable (or registers a callback) to adjust hardware behavior.
+
+```c
+/* apps/settings.h */
+struct user_settings {
+    /* ... 100s of settings ... */
+    int volume;                 /* -128 to 0 dB */
+    int backlight_timeout;      /* Seconds */
+    int disk_spindown;          /* Seconds */
+    bool hold_lr_for_scroll;    /* UI Behavior */
+    /* ... */
+};
+
+extern struct user_settings global_settings;
+```
+
+### 8.2 The Event Bus (`action.h`)
+The `apps/` layer does not poll GPIOs directly. It relies on the **Action System** (`apps/action.c`) to translate raw hardware events (`BUTTON_HOME`) into semantic actions (`ACTION_WPS_PLAY`).
+
+**The Translation Flow:**
+1.  **Hardware:** `firmware/drivers/button.c` detects press, posts `BUTTON_HOME` to `button_queue`.
+2.  **Action Layer:** `get_action()` dequeues the button code.
+3.  **Context Mapping:** It checks the current Context (e.g., `CONTEXT_MAINMENU`).
+4.  **Lookup:** It looks up `BUTTON_HOME` in the `CONTEXT_MAINMENU` keymap.
+5.  **Result:** It returns `ACTION_STD_OK` to the application loop.
+
+```c
+/* apps/action.h */
+enum {
+    CONTEXT_MAINMENU,
+    CONTEXT_WPS,
+    CONTEXT_LIST,
+    /* ... */
+};
+
+/* Semantic Actions */
+enum {
+    ACTION_STD_PREV,
+    ACTION_STD_NEXT,
+    ACTION_WPS_PLAY,
+    /* ... */
+};
+```
+
+### 8.3 The Playback API Contract
+The `apps/playback.c` module controls the audio engine but delegates the heavy lifting to `firmware/export/audio.h` and `firmware/export/pcm.h`.
+
+**Key API Functions:**
+*   `audio_init()`: Bootstraps the codec thread and I2S driver.
+*   `audio_play(offset)`: Starts playback logic (disk reading, buffering).
+*   `pcm_play_data(start, size)`: Low-level command to start DMA transfer.
+*   `mixer_set_volume(l, r)`: Adjusts software or hardware gain.
+
+**Call Graph:**
+```
+[User] -> [Action] -> [Audio Thread] -> [Codec Thread] -> [PCM Driver] -> [I2S HW]
+```
+
+### 8.4 The UI Stack (`screen` struct)
+The `apps/gui/` code is hardware-agnostic. It draws to a `struct screen` object, which contains function pointers to the specific LCD driver routines.
+
+**The `screen` Interface:**
+```c
+/* firmware/export/lcd.h */
+struct screen {
+    int width;
+    int height;
+    int depth;
+    void (*update)(void);
+    void (*put_pixel)(int x, int y, unsigned color);
+    /* ... */
+};
+
+extern struct screen screens[NB_SCREENS];
+```
+This allows the same UI code to drive the Main LCD (`screens[0]`) and the Remote LCD (`screens[1]`) simply by passing a different pointer.
+
+### 8.5 Architecture Layer Diagram (ASCII)
+This massive diagram illustrates the strict layering of the Rockbox architecture.
+
+```text
++---------------------------------------------------------------+
+|                       USER INTERFACE                          |
+|  (apps/gui/, apps/menu.c, apps/tree.c, apps/plugins/)         |
++------------------------------+--------------------------------+
+                               |
+          Calls 'get_action()' | Returns 'ACTION_STD_OK'
+                               v
++------------------------------+--------------------------------+
+|                       ACTION SYSTEM                           |
+|  (apps/action.c, apps/keymaps/)                               |
++------------------------------+--------------------------------+
+                               |
+          Reads 'button_queue' | Returns 'BUTTON_HOME'
+                               v
++------------------------------+--------------------------------+
+|                       KERNEL / OS                             |
+|  (firmware/kernel/thread.c, firmware/kernel/queue.c)          |
++------------------------------+--------------------------------+
+                               ^
+                  Posts Events | ISRs trigger 'queue_post'
+                               |
++------------------------------+--------------------------------+
+|               HARDWARE ABSTRACTION LAYER (HAL)                |
+|  (firmware/drivers/, firmware/target/)                        |
+|                                                               |
+|  [LCD Driver]   [Button Driver]   [Audio Driver]   [Storage]  |
++-------+---------------+-------+----------+-------------+------+
+        |               |                  |             |
+        v               v                  v             v
++-------+---------------+-------+----------+-------------+------+
+|                      BARE METAL HARDWARE                      |
+|  [GPIO Registers]  [I2S/DMA]  [SD Controller]  [PMIC I2C]     |
++---------------------------------------------------------------+
+```
+
+## 9. Summary
 The Rockbox build system is a monolithic, target-aware generator that constructs a complete bare-metal OS from source. It relies heavily on:
 1.  **Perl** (`configure`) for configuration.
 2.  **GNU Make** (`root.make`) for dependency management.
