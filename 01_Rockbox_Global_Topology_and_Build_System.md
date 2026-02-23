@@ -541,6 +541,53 @@ This massive diagram illustrates the strict layering of the Rockbox architecture
 +---------------------------------------------------------------+
 ```
 
+### 8.6 The Codec Interface (`lib/rbcodec`)
+Codecs in Rockbox are treated as "plugins" but with a specialized interface. They sit in the `apps` layer logically but interact deeply with the kernel.
+
+**Dynamic Loading:**
+For many targets, codecs are compiled as Position Independent Code (PIC) `.codec` files. When a song starts:
+1.  **Loader:** `codecs.c` allocates memory in the codec buffer (overlaying the plugin buffer).
+2.  **Relocation:** The loader fixes up jumps if necessary (though PIC minimizes this).
+3.  **Jump:** The firmware calls the codec's entry point.
+
+**The `codec_api` Struct:**
+This is the **reverse** of the Plugin API. It allows the *Codec* (guest) to call back into the *Firmware* (host).
+```c
+/* lib/rbcodec/codecs/codecs.h */
+struct codec_api {
+    /* File I/O */
+    size_t (*read_filebuf)(void *ptr, size_t size);
+    bool (*seek_buffer)(size_t newpos);
+
+    /* Audio Output */
+    void (*pcmbuf_insert)(const void *ch1, const void *ch2, int count);
+
+    /* System */
+    void (*yield)(void);
+    unsigned (*sleep)(unsigned ticks);
+
+    /* Metadata */
+    struct mp3entry *id3;
+};
+```
+
+**The Codec-Kernel Bridge (ASCII):**
+```text
+   [ CODEC THREAD (MPEG/FLAC) ]
+            |
+            | calls ci->read_filebuf()
+            v
+   [ BUFFERING MANAGER ]
+            |
+            | reads from 'audiobuf'
+            v
+   [ DISK CACHE / STORAGE DRIVER ]
+            |
+            | reads from SD/HDD
+            v
+   [ HARDWARE ]
+```
+
 ## 9. Summary
 The Rockbox build system is a monolithic, target-aware generator that constructs a complete bare-metal OS from source. It relies heavily on:
 1.  **Perl** (`configure`) for configuration.
