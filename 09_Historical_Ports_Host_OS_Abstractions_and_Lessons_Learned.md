@@ -417,3 +417,61 @@ One of the biggest challenges in hosted ports is audio latency.
 Rockbox's spectrum analyzer and VU meters read from the *current playback position* in the decoding buffer. On native hardware, this matches the sound in your ears. On hosted ports, the visualizer is often 100ms *ahead* of the sound because the sound is stuck in the OS buffer.
 *   **Mitigation:** Hosted ports implement a "Latency Correction" delay in the visualizer drawing code to delay the FFT visualization by the estimated audio path latency.
 *   **ESP32 Strategy:** We must measure the I2S DMA buffer depth exactly and report it to `pcm_get_buffer_count()` so the visualizers stay synced.
+
+---
+
+## 14. The Architecture Web (Inter-File Connections)
+This section explicitly maps how the "Hosted" abstractions relate to the architectural components analyzed in Files 1-8.
+
+### 14.1 Scheduler Emulation (`thread-sdl.c` <-> File 3)
+*   **Concept:** File 3 (`03_OS_Core_Kernel...`) detailed `struct thread_entry` and the cooperative `switch_thread` assembly logic.
+*   **Connection:** `thread-sdl.c` replaces the ASM context switch with `SDL_LockMutex(m)`. It reuses the exact same `struct thread_entry` defined in `firmware/kernel/thread-internal.h`, but replaces the CPU registers (`r0-r15`) in `context` with OS handles (`pthread_t`, `sem_t`).
+
+### 14.2 HAL Mapping (`lcd-linuxfb.c` <-> File 5)
+*   **Concept:** File 5 (`05_HAL_Part_2...`) detailed the `lcd_update()` function driving physical controller pins (DBOP/SPI).
+*   **Connection:** `lcd-linuxfb.c` implements the exact same `lcd_update()` API signature. However, instead of writing to `0xC8120000` (DBOP_BASE), it `memcpy`s the buffer to the pointer returned by `mmap("/dev/fb0")`. The upper layers of Rockbox (UI, Plugins) are unaware of this difference.
+
+### 14.3 Audio Pumping (`pcm-alsa.c` <-> File 7)
+*   **Concept:** File 7 (`07_The_Audio_Pipeline...`) detailed the I2S DMA interrupt logic.
+*   **Connection:** `pcm-alsa.c` replaces the hardware ISR with an ALSA callback (`snd_async_handler_t`).
+    *   **File 7 Flow:** Codec -> `audiobuf` -> `pcmbuf` -> DMA (ISR triggers next chunk).
+    *   **Hosted Flow:** Codec -> `audiobuf` -> `pcmbuf` -> ALSA (Callback triggers next chunk).
+    *   **Key Insight:** The `pcmbuf` ring buffer logic remains identical. The "Pump" mechanism changes from a Hardware Interrupt to a Software Callback.
+
+### 14.4 Plugin Linking (`elf_loader.c` <-> File 8)
+*   **Concept:** File 8 (`08_Applications_GUI...`) described dynamic loading of `.rock` ELF files.
+*   **Connection:** On many hosted platforms (especially Windows), dynamic loading of ELF files into a running executable is blocked by Data Execution Prevention (DEP) or OS architecture.
+    *   **Strategy:** Hosted builds often disable plugins or compile them as shared libraries (`.so`/`.dll`).
+    *   **Simulator:** The simulator compiles plugins as native shared objects and uses `dlopen()` instead of the custom `elf_loader`. This proves that the plugin logic is modular enough to survive the transition to ESP32's static linking model (File 10).
+
+---
+
+## 15. Cross-Architecture Data Flow Diagram
+This ASCII diagram visualizes the flow of a single MP3 frame from Disk to Speaker across the three major architectures analyzed.
+
+```text
+STEP          BARE METAL (ARM)        HOSTED (ANDROID)       ESP32 (PROPOSED)
+----          ----------------        ----------------       ----------------
+1. Read       ATA Driver (PIO/DMA)    Java InputStream       ESP-IDF VFS (FATFS)
+              |                       |                      |
+              v                       v                      v
+2. Buffer     SDRAM `audiobuf`        malloc() heap          PSRAM `audiobuf`
+              |                       |                      |
+              v                       v                      v
+3. Decode     MAD (Fixed Point)       MAD (Fixed Point)      MAD (Fixed Point)
+              |                       |                      |
+              v                       v                      v
+4. PCM Ring   SDRAM `pcmbuf`          malloc() `pcmbuf`      PSRAM/SRAM `pcmbuf`
+              |                       |                      |
+              v                       v                      v
+5. Transfer   DMA Controller          JNI Array Copy         I2S DMA Controller
+              (Interrupt Driven)      (Threaded Copy)        (Interrupt Driven)
+              |                       |                      |
+              v                       v                      v
+6. Output     I2S -> DAC Chip         AudioFlinger -> HAL    I2S -> DAC Chip
+              |                       |                      |
+              v                       v                      v
+7. Sound      Headphones              Speaker/Bluetooth      Headphones
+```
+
+**Key Insight:** The middle steps (Buffer, Decode, PCM Ring) are identical across all three. The divergence only happens at the edges (Step 1 and Step 5). This confirms that porting Rockbox to ESP32 is primarily a driver-level task (Files 4, 5, 7), preserving the kernel core (File 3) and application logic (Files 6, 8).
