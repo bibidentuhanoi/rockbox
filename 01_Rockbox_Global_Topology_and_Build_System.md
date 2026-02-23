@@ -3,70 +3,99 @@
 ## 1. The Master Archaeological Map
 This document serves as the foundational map for the Rockbox codebase, a 20+ year-old open-source firmware project designed for portable media players. The architecture reflects a "bare-metal" design philosophy from the early 2000s, where every byte of RAM and every CPU cycle was precious.
 
-### 1.1 The Directory Tree (Depth: 4 Levels)
-The following ASCII tree maps the critical structures relevant to the core firmware, bootloader, and build system.
+### 1.1 The Directory Tree (Depth: 6 Levels)
+The following ASCII tree maps the critical structures relevant to the core firmware, bootloader, and build system, digging down to the specific driver implementations.
 
 ```text
 .
-├── apps/                       # User-space applications and main event loop
-│   ├── codecs/                 # Audio codec wrappers (MP3, FLAC, etc.)
-│   ├── gui/                    # The Graphical User Interface engine
-│   │   ├── bitmaps/            # Bitmap handling
-│   │   ├── skin_engine/        # The WPS (While Playing Screen) engine
-│   │   └── viewport.c          # Viewport management
-│   ├── plugins/                # Dynamic loadable plugin source
-│   │   ├── bitmaps/            # Plugin assets
-│   │   └── lib/                # Plugin library helpers
-│   ├── action.c                # Input event to Action mapping
-│   ├── main.c                  # The main application entry point (rockbox_main)
-│   ├── menu.c                  # Main menu logic
-│   ├── metadata/               # Audio file metadata parsers (ID3, Vorbis Comments)
-│   ├── playback.c              # The high-level audio playback engine
-│   ├── recorder/               # Recording application logic
-│   └── tree.c                  # Database and file browser logic
-├── bootloader/                 # Second-stage bootloaders for various targets
-│   ├── common/                 # Shared bootloader logic
-│   └── main.c                  # Bootloader entry point
-├── firmware/                   # The Kernel and Hardware Abstraction Layer (HAL)
-│   ├── asm/                    # Architecture-specific assembly headers
-│   ├── common/                 # Generic driver implementations
-│   │   ├── disk.c              # Disk handling
-│   │   ├── dram.c              # SDRAM controller init
-│   │   └── fat.c               # Custom FAT12/16/32 driver
-│   ├── drivers/                # Hardware drivers
-│   │   ├── ata.c               # ATA/IDE driver
-│   │   ├── audio/              # I2S/AC97 Audio controller drivers
-│   │   ├── button.c            # Button matrix scanning
-│   │   ├── lcd/                # LCD controller drivers
-│   │   └── usb/                # USB stack (Mass Storage, HID)
-│   ├── export/                 # Public API headers (config.h, system.h)
-│   │   ├── config.h            # Main configuration header
-│   │   ├── system.h            # System-wide definitions
-│   │   └── cpu.h               # CPU-specific macros
-│   ├── include/                # Internal kernel headers
-│   ├── kernel/                 # The core OS kernel
-│   │   ├── core_alloc.c        # Core memory allocator
-│   │   ├── kernel.c            # Main kernel initialization
-│   │   └── thread.c            # Cooperative/Preemptive scheduler
-│   ├── target/                 # Target-specific hardware definitions
-│   │   ├── arm/                # ARM architecture targets
-│   │   │   ├── crt0.S          # C Runtime Startup (Assembly)
-│   │   │   └── system-target.h # CPU-specific macros
-│   │   ├── coldfire/           # Motorola ColdFire targets
-│   │   ├── hosted/             # Hosted ports (SDL, Android, Linux)
-│   │   └── mips/               # MIPS architecture targets
-│   └── usbstack/               # USB protocol stack
-├── lib/                        # Standalone libraries
-│   ├── rbcodec/                # The core audio decoding library (DSP, Codecs)
-│   │   ├── codecs/             # Fixed-point codec implementations
-│   │   └── dsp/                # DSP chain (EQ, Crossfeed, Resampler)
-│   └── skin_parser/            # .wps file parser
-└── tools/                      # Build tools and scripts
-    ├── configure               # The massive Perl configuration script
-    ├── gen_make.pl             # Makefile generator
-    ├── root.make               # The root Makefile template
-    ├── scramble                # Firmware image scrambler/packer
-    └── ucl/                    # Compression tools for bootloaders
+├── apps/                                   # User-space applications and main event loop
+│   ├── codecs/                             # Audio codec wrappers
+│   │   ├── liba52/                         # AC3 decoder library
+│   │   ├── libfaad/                        # AAC decoder library
+│   │   ├── libmad/                         # MPEG audio decoder
+│   │   │   ├── layer12.c                   # Layer I/II decoding
+│   │   │   ├── layer3.c                    # Layer III (MP3) decoding
+│   │   │   └── stream.c                    # Stream processing
+│   │   └── libtremor/                      # Fixed-point Vorbis decoder
+│   ├── gui/                                # The Graphical User Interface engine
+│   │   ├── bitmaps/                        # Bitmap handling
+│   │   │   └── native/                     # Target-specific native bitmaps
+│   │   ├── skin_engine/                    # The WPS (While Playing Screen) engine
+│   │   │   ├── skin_display.c              # Skin rendering logic
+│   │   │   ├── skin_parser.c               # .wps file parsing
+│   │   │   └── wps_internals.c             # Internal WPS state
+│   │   └── viewport.c                      # Viewport management
+│   ├── plugins/                            # Dynamic loadable plugin source
+│   │   ├── bitmaps/                        # Plugin assets
+│   │   │   └── native/                     # Native plugin bitmaps
+│   │   └── lib/                            # Plugin library helpers
+│   │       ├── pluginlib_actions.c         # Action handling helper
+│   │       └── xlcd_core.c                 # Plugin LCD core
+│   ├── playback.c                          # The high-level audio playback engine
+│   └── tree.c                              # Database and file browser logic
+├── bootloader/                             # Second-stage bootloaders for various targets
+│   ├── common/                             # Shared bootloader logic
+│   │   ├── ata_menu.c                      # ATA diagnostic menu
+│   │   └── serial_menu.c                   # Serial port diagnostic menu
+│   └── main.c                              # Bootloader entry point
+├── firmware/                               # The Kernel and Hardware Abstraction Layer (HAL)
+│   ├── common/                             # Generic driver implementations
+│   │   ├── disk.c                          # Disk handling
+│   │   ├── dram.c                          # SDRAM controller init
+│   │   └── fat.c                           # Custom FAT12/16/32 driver
+│   ├── drivers/                            # Hardware drivers
+│   │   ├── ata.c                           # ATA/IDE driver
+│   │   ├── audio/                          # I2S/AC97 Audio controller drivers
+│   │   │   ├── wm8758.c                    # Wolfson WM8758 codec driver
+│   │   │   └── wm8975.c                    # Wolfson WM8975 codec driver
+│   │   ├── button.c                        # Button matrix scanning
+│   │   ├── lcd/                            # LCD controller drivers
+│   │   │   ├── lcd-16bit.c                 # 16-bit color LCD driver
+│   │   │   └── lcd-ssd1306.c               # SSD1306 OLED driver
+│   │   └── usb/                            # USB stack (Mass Storage, HID)
+│   ├── kernel/                             # The core OS kernel
+│   │   ├── core_alloc.c                    # Core memory allocator
+│   │   ├── kernel.c                        # Main kernel initialization
+│   │   └── thread.c                        # Cooperative/Preemptive scheduler
+│   ├── target/                             # Target-specific hardware definitions
+│   │   ├── arm/                            # ARM architecture targets
+│   │   │   ├── as3525/                     # AMS AS3525 SoC (Sansa Clip)
+│   │   │   │   ├── sansa-clip/             # Sansa Clip target files
+│   │   │   │   │   ├── lcd-clip.c          # Clip-specific LCD setup
+│   │   │   │   │   └── powermgmt-clip.c    # Clip power management
+│   │   │   │   ├── audio-as3525.c          # AS3525 I2S driver
+│   │   │   │   └── usb-drv-as3525.c        # AS3525 USB controller
+│   │   │   ├── s3c2440/                    # Samsung S3C2440 SoC (Gigabeat)
+│   │   │   │   ├── gigabeat-fx/            # Gigabeat F/X target files
+│   │   │   │   │   ├── ata-meg-fx.c        # Gigabeat ATA driver
+│   │   │   │   │   └── lcd-target.h        # LCD config macros
+│   │   │   │   └── system-s3c2440.c        # S3C2440 system init
+│   │   │   └── crt0.S                      # C Runtime Startup (Assembly)
+│   │   ├── hosted/                         # Hosted ports (SDL, Android, Linux)
+│   │   │   ├── android/                    # Android Application port
+│   │   │   │   ├── app/                    # Java Application layer
+│   │   │   │   └── pcm-android.c           # Android AudioTrack shim
+│   │   │   └── sdl/                        # SDL Simulator port
+│   │   │       └── thread-sdl.c            # Pthread wrapper
+│   │   └── mips/                           # MIPS architecture targets
+│   │       └── ingenic_jz47xx/             # Ingenic JZ4740 SoC
+│   │           └── ata-jz4740.c            # JZ4740 MMC/SD driver
+│   └── usbstack/                           # USB protocol stack
+│       └── usb_core.c                      # Core USB logic
+├── lib/                                    # Standalone libraries
+│   ├── rbcodec/                            # The core audio decoding library (DSP, Codecs)
+│   │   ├── codecs/                         # Fixed-point codec implementations
+│   │   │   └── libmad/                     # MAD MP3 decoder
+│   │   └── dsp/                            # DSP chain (EQ, Crossfeed, Resampler)
+│   │       ├── dsp_filter.c                # Filter processing
+│   │       └── dsp_resampler.c             # Polyphase resampler
+│   └── skin_parser/                        # .wps file parser
+└── tools/                                  # Build tools and scripts
+    ├── configure                           # The massive Perl configuration script
+    ├── gen_make.pl                         # Makefile generator
+    ├── root.make                           # The root Makefile template
+    ├── scramble                            # Firmware image scrambler/packer
+    └── ucl/                                # Compression tools for bootloaders
 ```
 
 ---
