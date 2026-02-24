@@ -382,7 +382,59 @@ void panicf(const char* fmt, ...)
 
 ---
 
-## 11. Power Management: ULP Coprocessor
+## 11. The API Porting Checklist & Compliance Matrix
+Based on the extensive API documentation in `11_Rockbox_API_Reference_and_System_Integration.md`, we must systematically map each Rockbox subsystem to its ESP-IDF equivalent.
+
+### 11.1 The "Must-Have" APIs
+These are blocking issues. The firmware cannot compile or boot without them.
+
+#### 11.1.1 The Plugin API (`struct plugin_api`)
+**Constraint:** ESP32 is Harvard Architecture (NX RAM).
+**Strategy:** Static Linking & Overlay Manager.
+*   **Legacy:** `dlopen()` style loading of `.rock` ELF files.
+*   **Port:**
+    *   Compile `doom`, `snake`, `viewer` as static libraries (`.a`).
+    *   Create a lookup table: `{"doom", &doom_entry}`.
+    *   Patch `plugin_load(path)` to search this table instead of the filesystem.
+    *   **Memory:** Use `heap_caps_malloc(MALLOC_CAP_SPIRAM)` for the plugin's heap, matching the legacy `pluginbuf` behavior.
+
+#### 11.1.2 The USB API (`docs/usb-api.md`)
+**Constraint:** Rockbox has its own USB stack. ESP-IDF uses TinyUSB.
+**Strategy:** Shim Layer.
+*   **Legacy:** `usb_core_control_request` (Core handles setup packets).
+*   **Port:**
+    *   Initialize TinyUSB in `app_main` using `tusb_init()`.
+    *   Register a callback for `tud_control_xfer_cb`.
+    *   Inside the callback, invoke Rockbox's `usb_core_control_request`.
+    *   Map `USB_CONTROL_ACK` to `tud_control_status`.
+
+#### 11.1.3 The LCD API (`firmware/export/lcd.h`)
+**Constraint:** Rockbox writes to framebuffers. ESP-IDF writes to SPI.
+**Strategy:** Shadow Buffer.
+*   **Legacy:** `lcd_update()` flushes `framebuffer[]` to hardware.
+*   **Port:**
+    *   Allocate `framebuffer` in PSRAM (320x240x16b = ~150KB).
+    *   In `lcd_update()`, call `esp_lcd_panel_draw_bitmap()`.
+    *   Use `esp_lcd_panel_io_spi_config_t` with `dma_chan = auto` for zero-copy transfers (if SRAM allows) or bounce buffers.
+
+### 11.2 Compliance Matrix: Rockbox vs. ESP-IDF
+
+| Rockbox API Group | Rockbox Function | ESP-IDF Component | Status |
+| :--- | :--- | :--- | :--- |
+| **Threading** | `create_thread` | `xTaskCreatePinnedToCore` | **Mapped** (Wrapper required) |
+| **Sync** | `mutex_lock` | `xSemaphoreTake` | **Mapped** |
+| **File I/O** | `open`, `read` | `esp_vfs_fat.h` | **Mapped** (VFS shim) |
+| **Storage** | `storage_read_sectors` | `sdmmc_read_sectors` | **Mapped** (Critical Path) |
+| **Audio** | `pcm_play_data` | `i2s_channel_write` | **Mapped** (DMA Blocking) |
+| **Display** | `lcd_update_rect` | `esp_lcd_panel_draw_bitmap` | **Mapped** |
+| **Input** | `button_read_device` | `gpio_get_level` | **Mapped** (ISR preferred) |
+| **USB** | `usb_drv_control_response` | `tud_control_status` | **Complex** (Requires Shim) |
+| **Power** | `battery_voltage` | `adc_oneshot_read` | **Easy** |
+| **Boot** | `crt0.S` | `app_main()` | **Replaced** |
+
+---
+
+## 12. Power Management: ULP Coprocessor
 To achieve Rockbox's legendary standby time, we must use the ULP (Ultra Low Power) coprocessor during Deep Sleep.
 
 ### 11.1 The ULP State Machine
@@ -522,5 +574,35 @@ idf.py -j 12 build
 
 ---
 
-## 18. Conclusion
+## 18. The "Static Codec" Build Option
+To avoid the overhead of swapping codecs in and out of the constrained IRAM/DRAM, we introduce a `STATIC_CODECS` build flag.
+
+### 18.1 CMake Logic
+```cmake
+if(CONFIG_ROCKBOX_STATIC_CODECS)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE STATIC_CODECS)
+    list(APPEND SOURCES "lib/rbcodec/codecs/flac.c")
+    list(APPEND SOURCES "lib/rbcodec/codecs/vorbis.c")
+    # ... add all codecs ...
+endif()
+```
+
+### 18.2 Firmware Logic (`apps/codec_thread.c`)
+```c
+#ifdef STATIC_CODECS
+/* Function pointer table for internal codecs */
+static const struct codec_entry static_codec_table[] = {
+    { CODEC_FLAC, &flac_entry },
+    { CODEC_VORBIS, &vorbis_entry },
+};
+
+int codec_load(int codec_id) {
+    /* Instead of loading from disk, point to internal struct */
+    curr_codec_api = static_codec_table[codec_id].api;
+    return 0;
+}
+#endif
+```
+
+## 19. Conclusion
 Porting Rockbox to ESP32 is a monumental task of bridging two eras of embedded computing. It requires dissecting the bare-metal assumptions of 2005 and mapping them to the RTOS primitives of 2024. The strategy outlined above—pinning the core logic to one core, offloading I/O to drivers, and strictly managing PSRAM/SRAM split—provides the most viable path to a stable, high-fidelity audio player on the ESP32.

@@ -190,6 +190,12 @@ long get_next_cluster(struct bpb *bpb, long cluster)
 }
 ```
 
+### Level 11: The Write Path and Wear Leveling
+Rockbox does not implement wear leveling. It relies on the SD card's internal controller.
+*   **Write Strategy:** Rockbox minimizes writes. `settings.c` only writes the config file when settings change and the user exits a menu.
+*   **FAT Update:** Updating a FAT chain involves Read-Modify-Write of the FAT sector.
+*   **Safety:** To prevent corruption during power loss, Rockbox updates the directory entry size *after* writing the data clusters.
+
 ### LFN Parsing (Long File Names)
 Rockbox manually reassembles LFNs from the `0x0F` attribute entries.
 ```c
@@ -206,3 +212,99 @@ union raw_dirent {
 };
 ```
 The driver iterates backward through these entries to build the filename string in a temporary buffer before committing it to the directory cache.
+
+### Level 12: SD/MMC Wire Protocol State Machine
+The SD bus is not just a pipe; it's a state machine governed by the Card Status Register (CSR).
+*   **Idle (State 0):** Card accepts `CMD0` (Reset).
+*   **Ready (State 1):** Card accepts `CMD1` (Init).
+*   **Ident (State 2):** Card publishes RCA (Relative Card Address) via `CMD3`.
+*   **Stby (State 3):** Card waits for selection (`CMD7`).
+*   **Tran (State 4):** Card is selected and ready for data (`CMD17`/`CMD18`).
+
+**The Initialization Dance:**
+1.  **Power On:** Supply 3.3V. Wait 1ms.
+2.  **Send 74 Clocks:** Send dummy clocks with MOSI high to wake up the card SPI logic.
+3.  **CMD0:** Reset to Idle.
+4.  **CMD8:** Check voltage range (SD 2.0).
+5.  **ACMD41:** Initialize and check OCR (Operation Conditions Register).
+6.  **CMD2:** Ask for CID (Card ID).
+7.  **CMD3:** Ask for RCA.
+8.  **CMD9:** Ask for CSD (Card Specific Data) to calculate capacity.
+9.  **CMD7:** Select Card (Move to Transfer State).
+
+### Level 13: Error Handling & CRC
+Flash memory is unreliable. The SD protocol includes robust error checking.
+*   **Command CRC (CRC7):** Every command packet includes a 7-bit checksum. If the card detects a mismatch, it ignores the command.
+*   **Data CRC (CRC16):** Every 512-byte data block is followed by a 16-bit CRC per data line.
+*   **Handling:**
+    *   If `SD_MCI_STA` reports `CRC_FAIL`, the driver must reset the controller and retry the command.
+    *   After 3 retries, Rockbox marks the sector as bad or the card as ejected.
+
+### Level 14: Hot-Swap & Card Detection
+Portable players have removable storage. Rockbox handles this via GPIO interrupts.
+*   **Card Detect (CD) Pin:** Usually a mechanical switch in the SD slot, pulled high, grounded when card inserted.
+*   **ISR Logic:**
+    ```c
+    /* firmware/target/arm/as3525/sd-as3525.c */
+    void sd_cd_isr(void) {
+        if (gpio_get(SD_CD_PIN) == 0) {
+            /* Card Inserted */
+            queue_post(&disk_queue, DISK_INSERTED);
+        } else {
+            /* Card Removed */
+            /* PANIC: Stop all DMA immediately to prevent bus hang */
+            mci_stop();
+            queue_post(&disk_queue, DISK_REMOVED);
+        }
+    }
+    ```
+
+---
+
+## 5. ATA/IDE Stack: The Legacy Giant
+Before SD cards, Rockbox ran on 1.8" Hard Drives via the ATA protocol. This is relevant because the code still exists and defines the block API structure.
+
+### 5.1 Register Block (Memory Mapped)
+*   **Command Register (`0x1F7`):** Write `0x20` for READ_SECTORS.
+*   **Data Register (`0x1F0`):** 16-bit wide FIFO.
+*   **Sector Count (`0x1F2`):** Number of sectors to transfer.
+
+### 5.2 The PIO Mode (Programmed I/O)
+Without DMA, the CPU must poll the status register and manually copy data.
+```c
+/* firmware/drivers/ata.c */
+void ata_read_sector_pio(uint16_t *buf) {
+    /* Wait for DRQ (Data Request) */
+    while (!(ATA_STATUS & ATA_SR_DRQ));
+
+    /* Unroll loop for speed */
+    for (int i=0; i<256; i+=8) {
+        buf[i+0] = ATA_DATA;
+        buf[i+1] = ATA_DATA;
+        /* ... x8 unroll ... */
+        buf[i+7] = ATA_DATA;
+    }
+}
+```
+**Impact:** During PIO, the CPU is 100% busy transferring data. Audio decoding must rely on the large `audiobuf` cushion.
+
+## 6. Bus Arbitration and Locking
+Rockbox is multi-threaded. What happens if the `audio_thread` wants to read music and the `gui_thread` wants to save settings?
+
+### 6.1 The Storage Mutex
+A global mutex protects the storage driver.
+```c
+/* firmware/common/disk.c */
+void storage_read_sectors(...) {
+    mutex_lock(&storage_mtx);
+    driver->read_sectors(...);
+    mutex_unlock(&storage_mtx);
+}
+```
+
+### 6.2 Bus Locking (SPI)
+For shared buses (e.g., LCD and SD card on same SPI), Rockbox uses `spi_lock()`.
+*   **Priority Inversion:** If a low-priority thread holds the SPI lock for the LCD, the high-priority audio thread (fetching data from SD) must wait. Rockbox mitigates this by keeping LCD updates short and yield-able.
+
+## 7. Conclusion
+Rockbox's storage stack is a lesson in bare-metal efficiency. It avoids the overhead of generic OS block layers, implementing just enough protocol logic to read sectors fast. The explicit management of DMA descriptors and FIFO watermarks allows it to sustain high throughput with minimal CPU usage, essential for battery life.

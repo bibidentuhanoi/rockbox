@@ -461,3 +461,140 @@ If an App file includes `#include "as3525.h"`:
 3.  **Review Rejection:** Rockbox code review strictly polices this boundary.
 
 **Conclusion:** This rigid interface contract is why Rockbox is portable. The ESP32 port simply needs to implement the `firmware/export` API contract, and the 500,000+ lines of code in `apps/` will function immediately.
+
+---
+
+## 17. API Adaptation Layer Analysis
+This section explicitly maps how historical ports rewrote or extended the core APIs to function in their environments.
+
+### 17.1 The Hosted Plugin API Shim
+The simulator must run plugins that were compiled for the host architecture (x86), not the target.
+*   **The Shim:** `apps/plugins/bitmaps/plugin_bitmap.c` is replaced by a host-native version.
+*   **API Table:** The `plugin_api` table is populated with pointers to functions in the simulator executable (`rockboxui.exe`).
+*   **Loading:** Instead of parsing ELF headers, the simulator uses `dlopen()` on `.dll` or `.so` files which are compiled from the plugin source during the build process.
+
+### 17.2 The Android Audio Adaptation
+Android 4.0+ requires a strict buffer size for `AudioTrack`.
+*   **Constraint:** Rockbox prefers arbitrary buffer sizes (e.g., 4096 samples).
+*   **Adaptation:** The `pcm-android.c` layer implements a **Double Buffer**.
+    1.  Rockbox writes small chunks to a ring buffer.
+    2.  The JNI callback waits until `minBufferSize` is available.
+    3.  A burst write is sent to Android.
+    4.  **Result:** Rockbox sees a continuous DMA, Android sees burst writes.
+
+### 17.3 The Linux Input Subsystem Adaptation
+Linux provides input via `/dev/input/eventX`.
+*   **The Adaptation:** `firmware/target/hosted/linux/button-linux.c` opens these device nodes.
+*   **Translation:** It uses an `ioctl(EVIOCGKEY)` to read the keymap.
+*   **Mapping:** `KEY_ENTER` -> `BUTTON_SELECT`, `KEY_ESC` -> `BUTTON_HOME`.
+*   **Event Injection:** It pushes these translated events into the Rockbox `button_queue`.
+
+### 17.4 The SDL Framebuffer Emulation
+Rockbox assumes a simple array of pixels. SDL assumes a "Surface" or "Texture".
+*   **The Emulation:** `lcd-sdl.c` allocates a `uint16_t` array for Rockbox.
+*   **The Blit:** On `lcd_update()`, it iterates over this array.
+*   **Pixel Format Conversion:** Rockbox uses RGB565. SDL might use RGB888. The loop performs bit-shifting:
+    ```c
+    r = (pixel >> 11) & 0x1F;
+    g = (pixel >> 5) & 0x3F;
+    b = pixel & 0x1F;
+    sdl_pixel = SDL_MapRGB(fmt, r<<3, g<<2, b<<3);
+    ```
+*   **Optimization:** This conversion happens only on "dirty" rectangles to maintain 60 FPS on the simulator.
+
+---
+
+## 18. The PalmOS Port Analysis
+One of the earliest "Hosted" attempts was for PalmOS 5 devices (Tungsten T3, Tapwave Zodiac). This port is architecturally significant because it bridged two CPU architectures.
+
+### 18.1 The "PACE" Emulator
+PalmOS 5 runs on ARM processors but executes legacy 68k applications via the PACE (Palm Application Compatibility Environment) emulator.
+*   **The Problem:** Rockbox needed to run native ARM code for speed, but interface with 68k OS calls.
+*   **The Solution:** The "PNO" (Palm Native Object) format. Rockbox was compiled as a small 68k launcher that loaded a massive ARM binary blob.
+
+### 18.2 The "Armlet" Architecture
+The core firmware ran as an "Armlet" (native ARM subroutine).
+*   **Context Switch:** When Rockbox needed to call a PalmOS API (e.g., `SndPlayResource`), it had to exit the ARM context, return to 68k mode, make the syscall, and then re-enter ARM mode.
+*   **Relevance to ESP32:** This is eerily similar to the interaction between the ESP32 ULP (Ultra Low Power) coprocessor and the main CPU. We can apply the "Armlet" pattern to offload button scanning to the ULP while the main cores sleep.
+
+---
+
+## 19. Windows Hosted Port: Simulating Interrupts
+On Windows, Rockbox uses multimedia timers (`timeSetEvent`) to simulate the 100Hz hardware tick.
+
+### 19.1 The Win32 Event Loop
+The Windows messaging loop (`GetMessage`/`DispatchMessage`) replaces the `while(1)` loop in `kernel.c`.
+```c
+/* firmware/target/hosted/win32/system-win32.c */
+void CALLBACK TickTimerProc(UINT uID, UINT uMsg, DWORD_PTR dwUser, ...)
+{
+    /* Post a message to the main thread to run the tick */
+    PostMessage(hwnd, WM_ROCKBOX_TICK, 0, 0);
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_ROCKBOX_TICK) {
+        current_tick++;
+        /* Run Rockbox scheduler */
+        call_callouts();
+    }
+}
+```
+**Constraint:** Windows message queues are low priority. If the window is being dragged, `WM_TIMER` messages get delayed.
+**Fix:** The port creates a separate high-priority thread just for the tick timer to ensure audio stability, using `SetThreadPriority(THREAD_PRIORITY_TIME_CRITICAL)`.
+
+---
+
+## 20. The "UiSimulator" Input Stack
+The simulator allows developers to click buttons on a JPEG skin of the device.
+
+### 20.1 Skin Parsing (`apps/gui/skin_engine/`)
+The simulator parses a `.bmp` file and a `.fms` (FaceMap Script) file.
+*   **Hit Testing:** When `SDL_MOUSEBUTTONDOWN` occurs, the code iterates through defined "Touch Regions" in the skin file.
+*   **Mapping:** If the click coordinates match a region defined as `BUTTON_HOME`, that keycode is injected.
+
+### 20.2 Key Injection Logic
+```c
+/* bootloader/simulator_main.c */
+void button_post(int button) {
+    /* 1. Lock Queue */
+    mutex_lock(&button_queue_lock);
+
+    /* 2. Add to Ring Buffer */
+    if (queue_count < MAX_QUEUE) {
+        queue[head] = button;
+        head = (head + 1) % MAX_QUEUE;
+        queue_count++;
+    }
+
+    /* 3. Wake Kernel */
+    semaphore_release(&button_queue_wait);
+    mutex_unlock(&button_queue_lock);
+}
+```
+This demonstrates that the input subsystem is entirely decoupled from the hardware driver. As long as *something* calls `button_post`, Rockbox works.
+
+---
+
+## 21. Final Synthesis: The "Hybrid" Model for ESP32
+After analyzing the Bare Metal (Files 1-7) and Hosted (Files 9) architectures, we arrive at a definitive conclusion for the ESP32 port. It cannot be purely one or the other. It must be a **Hybrid**.
+
+### 21.1 The "Bare Metal" Aspects
+*   **Memory:** We must use `core_alloc` with a static heap (PSRAM) like a bare-metal target. Using `malloc` for everything (Hosted style) will fragment the heap too much for long-running playback on a device with limited virtual address space.
+*   **Display:** We must drive the display via SPI directly (Bare Metal style), not via a windowing system. `lcd_update` will flush directly to hardware.
+
+### 21.2 The "Hosted" Aspects
+*   **Threading:** We must use the OS (FreeRTOS) scheduler (Hosted style). Implementing a custom context switch on top of FreeRTOS is redundant and dangerous.
+*   **Storage:** We must use the OS filesystem (VFS/FATFS) like the Android port. Writing a raw SDMMC driver is unnecessary when ESP-IDF provides a robust, thread-safe one.
+*   **Audio:** We must use the OS Audio API (I2S Driver) like the Android `AudioTrack`. We feed a buffer, and the OS handles the DMA interrupts.
+
+### 21.3 The "Shim" Layer
+The success of the port hinges on the quality of the **Shim Layer** that translates Rockbox's cooperative assumptions into FreeRTOS's preemptive reality.
+*   **The Yield Shim:** `yield()` must map to `taskYIELD()` or `vTaskDelay(1)` to ensure the Idle task runs (feeding the Watchdog).
+*   **The ISR Shim:** Rockbox ISRs (which run in interrupt context) must be converted to High Priority Tasks or strictly obey FreeRTOS `FromISR` semantics.
+
+## 22. References
+*   `firmware/target/hosted/android/` - The reference for JNI and AudioTrack integration.
+*   `firmware/target/hosted/sdl/` - The reference for Threading and Input simulation.
+*   `firmware/target/hosted/linux/` - The reference for Framebuffer mapping.

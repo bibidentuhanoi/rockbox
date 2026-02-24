@@ -321,3 +321,109 @@ void dsp_process(int16_t *dest, size_t count)
 ```
 
 This interaction confirms that **Hardware Interrupts drive the Software Logic**. The Codec thread is a "Producer" that fills the ring buffer, and the DMA ISR is a "Consumer" that drains it via the DSP chain.
+
+---
+
+## 11. Detailed Codec Architecture: The `libmad` Wrapper
+To illustrate how a specific codec integrates, we analyze the MP3 codec (`lib/rbcodec/codecs/mpga.c`) which wraps `libmad`.
+
+### 11.1 The Entry Point
+```c
+enum codec_status codec_main(enum codec_entry_call_reason reason)
+{
+    if (reason == CODEC_LOAD) {
+        /* Initialize MAD Decoder */
+        mad_stream_init(&stream);
+        mad_frame_init(&frame);
+        mad_synth_init(&synth);
+
+        /* Configure DSP for 44.1kHz Stereo */
+        ci->configure(DSP_SET_FREQUENCY, 44100);
+        ci->configure(DSP_SET_STEREO_MODE, STEREO_INTERLEAVED);
+    }
+    return CODEC_OK;
+}
+```
+
+### 11.2 The Buffer Request Loop
+The codec acts as a stream processor. It requests "File Chunks" and outputs "PCM Chunks".
+```c
+enum codec_status codec_run(void)
+{
+    while (1) {
+        /* 1. Request Input Data */
+        /* ci->request_buffer asks the kernel for a pointer to the file buffer */
+        /* It handles the sector cache logic transparently */
+        unsigned char *input_buffer = ci->request_buffer(&size, MIN_FRAME_SIZE);
+
+        if (size == 0) break; /* EOF */
+
+        /* 2. Decode One Frame */
+        mad_stream_buffer(&stream, input_buffer, size);
+        mad_header_decode(&frame.header, &stream);
+        mad_frame_decode(&frame, &stream);
+
+        /* 3. Synthesis (Fixed Point -> PCM) */
+        mad_synth_frame(&synth, &frame);
+
+        /* 4. Output to Kernel */
+        /* dithered_pcm is a temporary buffer in codec RAM */
+        ci->pcmbuf_insert(dithered_pcm, NULL, synth.pcm.length);
+
+        /* 5. Advance File Pointer */
+        ci->advance_buffer(stream.next_frame - input_buffer);
+
+        /* 6. Yield to allow UI/Disk threads to run */
+        ci->yield();
+    }
+    return CODEC_OK;
+}
+```
+
+## 12. DSP Profiling and Optimization
+Rockbox developers spend immense effort shaving cycles off the DSP.
+*   **Inline Assembly:** Critical loops (biquad, volume) are written in ARM/ColdFire assembly.
+*   **Zero-Copy:** The DSP chain modifies data *in place* in the DMA buffer to avoid `memcpy`.
+*   **Branch Prediction:** `likely()`/`unlikely()` macros steer the compiler for the "Music Playing" path.
+
+### 12.1 The Cycle Counter
+Rockbox has a built-in profiler that uses hardware timers to measure CPU usage per thread.
+*   `cpu_idle`: Time spent in the Idle thread (WFI).
+*   `audio_thread`: Time spent managing the playlist.
+*   `codec_thread`: Time spent decoding.
+*   **Target:** On an ARM926EJ-S at 200MHz, MP3 decoding should consume < 15MHz (7.5% CPU), leaving 92.5% for idle (battery saving).
+
+## 13. ReplayGain Analysis
+ReplayGain normalizes audio volume to a standard loudness. Rockbox applies this in the DSP chain.
+
+### 13.1 ID3 Tag Parsing
+The metadata parser reads `TXXX:replaygain_track_gain` tags.
+*   **Values:** Stored in dB (e.g., "-8.54 dB").
+*   **Conversion:** Converted to a fixed-point scaling factor.
+
+### 13.2 The Gain Stage
+The DSP chain applies the gain.
+```c
+/* lib/rbcodec/dsp/dsp_misc.c */
+void apply_replaygain(int32_t *sample, int32_t gain)
+{
+    /* gain is Q.24 fixed point */
+    int64_t val = (int64_t)*sample * gain;
+    *sample = val >> 24;
+}
+```
+**Clipping:** ReplayGain can cause clipping. Rockbox implements a "hard limiter" or "soft clipper" to prevent digital distortion.
+
+---
+
+## 14. Cuesheet Parsing
+Rockbox supports embedded or external cuesheets for single-file album rips.
+
+### 14.1 The Virtual Track Logic
+A Cuesheet splits one physical file into multiple logical tracks.
+*   **Struct:** `struct cuesheet` contains an array of track offsets.
+*   **Seek:** "Next Track" calculates the offset of Track N+1 and seeks the file pointer, rather than opening a new file.
+*   **Gapless:** Since it's one file, gapless playback is implicit.
+
+## 15. Conclusion
+The Audio Engine is a high-wire act of balancing **Buffer Depth** (for disk power saving) against **RAM Usage** (for the codec overlay) and **CPU Cycles** (for DSP complexity). The use of fixed-point arithmetic is a hard constraint that permeates the entire architecture, from the `libmad` source to the custom `FRAC_MUL` macros in the DSP chain.
