@@ -1,7 +1,7 @@
 # 03_OS_Core_Kernel_and_Memory_Map.md
 
 ## Abstract
-This document dissects the bespoke Rockbox kernel, a custom cooperative/preemptive hybrid scheduler designed for extreme efficiency on single-core embedded CPUs. It analyzes the `struct thread_entry` control block, the assembly-optimized context switching logic, and the flat memory model that statically partitions RAM into the kernel, stack, and the massive `audiobuf` ring buffer.
+This document dissects the bespoke Rockbox kernel, a custom cooperative/preemptive hybrid scheduler designed for extreme efficiency on single-core embedded CPUs. It analyzes the `struct thread_entry` control block, the assembly-optimized context switching logic, and the flat memory model that statically partitions RAM into the kernel, stack, and the massive `audiobuf` ring buffer. It also details the thread state machine, stack overflow detection mechanisms (stack painting), and the intricate `buflib` memory pool manager.
 
 ## 1. The Kernel Architecture: Threads & Scheduling
 Rockbox implements a bespoke cooperative/preemptive hybrid kernel. It is not POSIX-compliant, nor does it use a standard RTOS like FreeRTOS or ThreadX. It was built from scratch to be extremely lightweight (measured in kilobytes) and deterministic for audio playback.
@@ -451,5 +451,55 @@ This diagram illustrates the "Lifecycle of an Input Event" traversing all layers
                                                          [ Handle ACTION_NEXT ]
 ```
 
-## 12. Conclusion
+---
+
+## 13. Stack Painting & Overflow Detection
+To debug stack overflows in a system without MMU protection, Rockbox uses "Stack Painting".
+
+### 13.1 Implementation
+1.  **Paint:** At startup (`crt0.S` and `thread_create`), the entire stack area is filled with `0xDEADBEEF`.
+2.  **Check:** The debug menu scans the stack from the bottom up. The first non-`0xDEADBEEF` value indicates the maximum stack depth ever reached ("High Watermark").
+3.  **Panic:** If the value at the very bottom (Stack Limit) is corrupted, the kernel panics with `stkov`.
+
+### 13.2 The Stack Switch
+The assembly context switcher must carefully manage the stack pointer.
+```asm
+/* ARM Context Switch */
+switch_thread:
+    stmfd   sp!, {r4-r11, lr}   /* Push Registers */
+    str     sp, [r0]            /* Save Old SP to current->context */
+    ldr     sp, [r1]            /* Load New SP from next->context */
+    ldmfd   sp!, {r4-r11, pc}   /* Pop Registers & Jump */
+```
+
+### 13.3 Multi-Core Stack (PP502x)
+On multi-core targets, stack painting is even more critical because the secondary core's stack is often placed in tight SRAM. Rockbox uses separate paint values (e.g., `0xDEADBEEF` for Core 0, `0xFEEDFACE` for Core 1) to distinguish them during post-mortem analysis.
+
+---
+
+## 14. Thread Priorities and State Machine
+Rockbox threads operate in distinct states and priority levels.
+
+### 14.1 The States
+*   **STATE_RUNNING:** Currently executing on the CPU.
+*   **STATE_BLOCKED:** Waiting on a sync primitive (mutex, semaphore, queue).
+*   **STATE_SLEEPING:** Waiting for a timeout (`sleep()`).
+*   **STATE_KILLED:** Thread has exited but resources not yet freed.
+
+### 14.2 The Priority Ladder
+1.  **PRIORITY_REALTIME:** Hard constraints (e.g., PCM mixing).
+2.  **PRIORITY_USER_INTERFACE:** UI responsiveness.
+3.  **PRIORITY_PLAYBACK:** Audio buffering/decoding.
+4.  **PRIORITY_BACKGROUND:** Database scanning, idle tasks.
+
+### 14.3 Priority Inversion Handling
+Rockbox implements basic priority inheritance for mutexes. If a high-priority thread blocks on a mutex held by a low-priority thread, the low-priority thread is temporarily boosted to prevent the "Priority Inversion" deadlock scenario.
+
+### 14.4 The Idle Thread
+The Idle Thread is a special thread with priority 0 created at startup.
+*   **Role:** Runs when no other thread is runnable.
+*   **Function:** `idle_thread()` loops forever calling `cpu_idle()`.
+*   **Hardware:** `cpu_idle()` executes the `WFI` (Wait For Interrupt) instruction, putting the CPU into low-power sleep mode until the next IRQ fires. This is the primary power-saving mechanism of the OS.
+
+## 15. Conclusion
 The Rockbox kernel is a purpose-built engine optimized for media playback. Every component, from the assembly context switch to the `buflib` allocator, is designed to serve the audio pipeline. Understanding these deep interconnections is prerequisite to any porting effort.

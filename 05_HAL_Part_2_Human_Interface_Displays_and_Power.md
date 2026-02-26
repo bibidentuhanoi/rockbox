@@ -392,5 +392,109 @@ void backlight_set_brightness(int val) {
 }
 ```
 
-## 7. Conclusion
+---
+
+## 7. The RTC (Real Time Clock) Driver
+Rockbox maintains time even when powered off via the RTC.
+
+### 7.1 Register Map (`rtc.h`)
+```c
+struct tm {
+    int tm_sec;
+    int tm_min;
+    int tm_hour;
+    int tm_mday;
+    int tm_mon;
+    int tm_year;
+    /* ... */
+};
+```
+
+### 7.2 The Update Loop
+`rtc_read_datetime()` is called periodically by the UI.
+*   **BCD Format:** Most RTCs store time in Binary Coded Decimal (`0x59` = 59 seconds).
+*   **Conversion:** `((val >> 4) * 10) + (val & 0x0F)`.
+
+### 7.3 Alarm Wakeup
+Rockbox supports "Wake on Alarm".
+1.  User sets Alarm in Menu.
+2.  `rtc_set_alarm()` writes to RTC Alarm Registers.
+3.  `rtc_enable_alarm()` unmasks the RTC Interrupt.
+4.  When Alarm fires, the PMIC sees the IRQ line drop and powers up the CPU.
+5.  `main()` checks `rtc_check_alarm_flag()` to see if it woke up due to alarm, and if so, starts playback.
+
+---
+
+## 8. The USB Charging State Machine
+Rockbox implements a full USB charging state machine.
+
+### 8.1 The State Machine
+1.  **Detect:** USB VBUS pin goes High.
+2.  **Identify:** Check D+/D- lines to detect Charger Type (DCP/SDP/CDP).
+3.  **Charge:** Enable PMIC charging logic.
+4.  **Monitor:**
+    *   If `ADC_BATTERY > 4.2V`, stop.
+    *   If `ADC_TEMP > 45C`, stop.
+    *   If `USB_DISCONNECTED`, switch to battery.
+
+### 8.2 Current Limiting
+To comply with USB specs:
+*   **SDP (Standard Port):** Limit to 100mA initially, then 500mA after enumeration.
+*   **DCP (Wall Charger):** Enable max current (e.g., 1000mA).
+*   **Implementation:** `usb_set_current_limit(500)` calls the PMIC driver to set the input current limit register.
+
+---
+
+## 9. Wheel Input: The iPod Clickwheel
+The Clickwheel is a specialized input device driven by a Synaptics controller via I2C or UART.
+
+### 9.1 The Packet Format
+The controller sends packets when the wheel is touched.
+```text
+Byte 0: 0x42 (Sync)
+Byte 1: Buttons (Bit 0: Center, Bit 1: Menu, etc.)
+Byte 2: Wheel Position (0-255)
+Byte 3: Touch Strength
+```
+
+### 9.2 The Acceleration Logic (`scroll_engine.c`)
+Rockbox translates the absolute wheel position into scroll events.
+*   **Delta Calculation:** `delta = current_pos - last_pos`.
+*   **Handling Wraparound:** (e.g., 255 -> 0).
+*   **Acceleration:** Faster spinning = larger scroll jumps.
+    ```c
+    if (abs(delta) > fast_threshold)
+        scroll_lines = 10;
+    else
+        scroll_lines = 1;
+    ```
+
+---
+
+## 10. Conclusion
 The Human Interface and Power subsystems are the "face" and "heart" of Rockbox. While the GUI code in `apps/` is high-level, the drivers in `firmware/` are deeply tied to the electrical realities of the device—capacitance, voltage curves, and timing pulses. The AS3525 DBOP analysis demonstrates that "writing to the screen" is not a simple memory copy but a precise orchestration of GPIO, DMA, and Clock domains.
+
+## 11. Appendix: LCD Contrast and Gamma Correction
+LCDs often require software adjustment of contrast and gamma curves.
+
+### 11.1 Contrast (VCOM)
+Contrast controls the voltage difference between the liquid crystal electrodes.
+*   **Low VCOM:** Washout (White).
+*   **High VCOM:** Blackout (Black).
+*   **Implementation:** `lcd_set_contrast(int val)` sends a command to the LCD controller.
+    ```c
+    /* ST7789 */
+    lcd_write_cmd(0xBB); /* VCOMS */
+    lcd_write_data(val);
+    ```
+
+### 11.2 Gamma Correction
+To ensure color accuracy, the LCD driver can load a custom gamma curve table.
+```c
+/* firmware/drivers/lcd-st7789.c */
+static const uint8_t gamma_table[] = {
+    0xE0, 14, 0xD0, 0x04, 0x0C, 0x11, 0x13, 0x2C, 0x3F, 0x44, 0x51, 0x2F, 0x1F, 0x1F, 0x20, 0x23,
+    /* ... Negative Gamma ... */
+};
+```
+This table is often reverse-engineered from the original firmware to match the vendor's color calibration.

@@ -101,6 +101,18 @@ To achieve performance, Rockbox uses macros to implement fractional multiplicati
 ```
 These macros often map to specific assembly instructions (e.g., `SMLAL` on ARM) for single-cycle execution.
 
+### 2.2 Assembly Optimization (`firmware/target/arm/asm_arm.h`)
+For critical loops, inline assembly is used.
+```c
+static inline int32_t smulwb(int32_t x, int32_t y)
+{
+    int32_t res;
+    asm ("smulwb %0, %1, %2" : "=r" (res) : "r" (x), "r" (y));
+    return res;
+}
+```
+This specific instruction (`SMULWB`) multiplies a 32-bit integer by the bottom 16 bits of another 32-bit integer, which is perfect for applying 16-bit volume coefficients to 32-bit samples.
+
 ---
 
 ## 3. The DSP Pipeline (`lib/rbcodec/dsp/`)
@@ -140,6 +152,12 @@ int32_t process_biquad(int32_t sample, struct biquad_coeffs *c, int32_t *history
 
 ### 3.2 Resampler
 Used for playback speed control (pitch shifting) or sample rate conversion (44.1kHz -> 48kHz for hardware compatibility). It uses polyphase filtering for high quality.
+
+### 3.3 Compressor/Limiter
+To prevent clipping (especially with EQ boost), a dynamic range compressor is used.
+*   **Attack/Release:** Configurable time constants.
+*   **Threshold:** If signal > Threshold, apply gain reduction.
+*   **Implementation:** Peak detection with a smoothing filter.
 
 ---
 
@@ -425,5 +443,71 @@ A Cuesheet splits one physical file into multiple logical tracks.
 *   **Seek:** "Next Track" calculates the offset of Track N+1 and seeks the file pointer, rather than opening a new file.
 *   **Gapless:** Since it's one file, gapless playback is implicit.
 
-## 15. Conclusion
+---
+
+## 15. Voice Codec (Speex)
+Rockbox uses the Speex codec for voice menus (Voice User Interface).
+*   **Low Bitrate:** Compresses speech to ~8kbps.
+*   **Optimization:** Highly optimized fixed-point version.
+*   **Integration:** The `.talk` clips are decoded into a secondary PCM buffer and mixed into the main audio stream via `mixer_process()`.
+
+## 16. The Software Codec API Table
+The `struct codec_api` (in `firmware/export/codec.h`) defines the binary interface between the core and loadable codecs.
+
+```c
+struct codec_api {
+    /* System */
+    void (*yield)(void);
+    void (*sleep)(int ticks);
+
+    /* Audio Output */
+    void (*pcmbuf_insert)(const void *ch1, const void *ch2, int count);
+    void (*configure)(int setting, int value);
+
+    /* File I/O */
+    size_t (*read_filebuf)(void *buf, size_t count);
+    off_t (*seek_buffer)(off_t offset);
+    void (*advance_buffer)(size_t amount);
+
+    /* Metadata */
+    void (*set_elapsed)(unsigned long elapsed);
+};
+```
+**Versioning:** `CODEC_API_VERSION` ensures that a codec compiled for v3.14 won't crash v3.15.
+
+---
+
+## 17. The Dynamic Loading Mechanism (Simplified)
+Codecs are ELF binaries, but with a twist.
+*   **PIC (Position Independent Code):** They must be compiled with `-fPIC` because `buflib` might load them at any address in RAM.
+*   **GOT (Global Offset Table):** The custom loader (`elf_loader.c`) must patch the GOT at load time.
+*   **BSS:** The loader must zero out the BSS section.
+
+## 18. Conclusion
 The Audio Engine is a high-wire act of balancing **Buffer Depth** (for disk power saving) against **RAM Usage** (for the codec overlay) and **CPU Cycles** (for DSP complexity). The use of fixed-point arithmetic is a hard constraint that permeates the entire architecture, from the `libmad` source to the custom `FRAC_MUL` macros in the DSP chain.
+
+## 19. Appendix: DSP Filter Coefficients
+For the curious, here is how Rockbox calculates Biquad coefficients for a Peaking EQ filter.
+
+```c
+/* firmware/common/dsp.c */
+void compute_peaking_eq(int freq, int Q, int gain, struct biquad_coeffs *c)
+{
+    /* Convert gain (dB) to linear amplitude */
+    int A = pow(10, gain / 40);
+    int w0 = 2 * PI * freq / SAMPLING_RATE;
+    int alpha = sin(w0) / (2 * Q);
+
+    /* Fixed Point Scaling */
+    c->b0 = (1 + alpha * A) * SCALE;
+    c->b1 = (-2 * cos(w0)) * SCALE;
+    c->b2 = (1 - alpha * A) * SCALE;
+    c->a0 = (1 + alpha / A) * SCALE;
+    c->a1 = (-2 * cos(w0)) * SCALE;
+    c->a2 = (1 - alpha / A) * SCALE;
+
+    /* Normalize by a0 */
+    /* ... */
+}
+```
+Rockbox approximates `sin`, `cos`, and `pow` using lookup tables and Taylor series expansions to avoid linking the heavy `libm`.

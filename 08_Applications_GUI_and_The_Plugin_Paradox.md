@@ -413,3 +413,88 @@ sequenceDiagram
     Loader->>MainThread: Resume Main Loop
     MainThread->>Kernel: lcd_update() (Restore UI)
 ```
+
+---
+
+## 7. The Plugin Linker Script (`plugin.lds`)
+Each plugin is compiled with a dedicated linker script that defines its memory layout in RAM.
+
+### 7.1 PIC and GOT
+Since plugins are loaded at arbitrary addresses, they must be Position Independent Code (PIC).
+*   **GOT (Global Offset Table):** Stores addresses of global variables.
+*   **PLT (Procedure Linkage Table):** Not used; plugins call firmware via API struct.
+
+```ld
+/* plugin.lds */
+SECTIONS
+{
+    .header : {
+        KEEP(*(.header))
+    } > RAM
+
+    .text : {
+        *(.text*)
+        *(.rodata*)
+    } > RAM
+
+    .data : {
+        *(.data*)
+    } > RAM
+
+    .bss : {
+        *(.bss*)
+    } > RAM
+}
+```
+
+### 7.2 The `BSS` Problem
+The `BSS` section (uninitialized globals) is not present in the `.rock` file to save space. The loader must:
+1.  Read `.header.bss_size`.
+2.  `memset(load_addr + data_size, 0, bss_size)`.
+Failure to do this results in random garbage in static variables.
+
+## 8. Theme Engine: The WPS Parser (`apps/gui/skin_engine/`)
+The "While Playing Screen" (WPS) is a specialized plugin-like entity driven by a script (`.wps`).
+
+### 8.1 Token Parser
+The engine parses tokens like `%s%?cf<%cf|%ct|%c>` into a display list.
+*   `%s`: Song Title.
+*   `%?cf<...>`: Conditional. If Album Art exists (`cf`), show it, else show generic icon.
+
+### 8.2 The Rendering Loop
+The `wps_thread` iterates the display list 5-10 times per second.
+1.  **Evaluate:** Check conditionals.
+2.  **Format:** Expand strings (`%s` -> "Bohemian Rhapsody").
+3.  **Draw:** Blit bitmaps and text to the framebuffer.
+4.  **Update:** Call `lcd_update()`.
+
+## 9. Multilingual Support (`apps/lang/`)
+Rockbox supports 50+ languages via a string table.
+
+### 9.1 The `.lng` Binary Format
+*   **Header:** Checksum, Version, Language ID.
+*   **Offset Table:** Array of 16-bit offsets.
+*   **String Pool:** Null-terminated strings.
+
+### 9.2 The `lang_load()` Mechanism
+1.  User selects "Deutsch".
+2.  Kernel allocates a buffer.
+3.  Reads `deutsch.lng` into buffer.
+4.  Iterates `language_strings[]` pointers and repoints them into the buffer.
+
+## 10. The Font Engine (`apps/gui/font.c`)
+Rockbox uses a custom BDF (Bitmap Distribution Format) derived font engine.
+
+### 10.1 The `.fnt` Format
+*   **Header:** Height, Ascent, Descent.
+*   **Offset Table:** Offsets for characters 0-255 (or sparse unicode).
+*   **Bitmap Data:** Variable width bitstreams.
+
+### 10.2 Rendering Logic
+`lcd_putsf()` draws a string using the current font.
+1.  **Locate:** Find character in offset table.
+2.  **Decode:** Read bitmap data (RLE or raw).
+3.  **Blit:** Write bits to the framebuffer (handling clipping and viewports).
+
+## 11. Conclusion
+The `apps/` directory is effectively a self-contained operating system running on top of the `firmware/` microkernel. Its complete separation of concerns—achieved via the `plugin_api` and `screen` abstractions—allows the same Doom binary to run on an iPod (ARM), a Sansa (ARM+Thumb), and an iRiver H300 (ColdFire), provided they are compiled for the correct architecture, without changing a single line of source code.

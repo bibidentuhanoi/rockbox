@@ -1,7 +1,9 @@
 # 04_HAL_Part_1_Storage_Core_Buses_and_DMA.md
 
 ## Abstract
-This document explores the foundational storage and bus abstraction layers. It provides a deep dive into the 10-level stack of the SD/MMC driver, from the kernel's `read_sectors` request down to the physical wire protocol and the PL081 DMA controller's descriptors. It also examines the custom, highly optimized FAT16/32 implementation that bypasses standard libraries for maximum performance on bare-metal targets.
+This document explores the foundational storage and bus abstraction layers. It provides a deep dive into the 10-level stack of the SD/MMC driver, from the kernel's `read_sectors` request down to the physical wire protocol and the PL081 DMA controller's descriptors. It also examines the custom, highly optimized FAT16/32 implementation that bypasses standard libraries for maximum performance on bare-metal targets. The ATA/IDE stack is also analyzed for historical context and its impact on the block device API design.
+
+---
 
 ## 1. The Hardware Abstraction Layer (HAL)
 Rockbox isolates hardware specifics through a comprehensive HAL in `firmware/target/` and `firmware/drivers/`. This allows the same FAT filesystem code (`fat.c`) to run on an iPod (IDE/ATA), a Sansa (SD/MMC), or an Android phone (Java/JNI).
@@ -288,6 +290,14 @@ void ata_read_sector_pio(uint16_t *buf) {
 ```
 **Impact:** During PIO, the CPU is 100% busy transferring data. Audio decoding must rely on the large `audiobuf` cushion.
 
+### 5.3 UDMA Mode (Ultra DMA)
+Later iPods (5G/Video) supported UDMA.
+*   **Mechanism:** The ATA controller takes over the bus and transfers data at 66MB/s.
+*   **CRC:** UDMA introduces CRC protection for data transfers (unlike PIO).
+*   **Signaling:** Uses `DMARQ` and `DMACK` lines for handshaking.
+
+---
+
 ## 6. Bus Arbitration and Locking
 Rockbox is multi-threaded. What happens if the `audio_thread` wants to read music and the `gui_thread` wants to save settings?
 
@@ -306,5 +316,194 @@ void storage_read_sectors(...) {
 For shared buses (e.g., LCD and SD card on same SPI), Rockbox uses `spi_lock()`.
 *   **Priority Inversion:** If a low-priority thread holds the SPI lock for the LCD, the high-priority audio thread (fetching data from SD) must wait. Rockbox mitigates this by keeping LCD updates short and yield-able.
 
-## 7. Conclusion
-Rockbox's storage stack is a lesson in bare-metal efficiency. It avoids the overhead of generic OS block layers, implementing just enough protocol logic to read sectors fast. The explicit management of DMA descriptors and FIFO watermarks allows it to sustain high throughput with minimal CPU usage, essential for battery life.
+---
+
+## 7. The Custom Directory Cache (`dircache.c`)
+FAT directory traversal is slow (linked list of clusters). Rockbox implements a massive RAM cache for the directory structure.
+
+### 7.1 The Cache Structure
+*   **`struct dircache_entry`:** 12 bytes per file.
+    *   `name_hash`: 32-bit hash of the filename.
+    *   `sector`: Starting sector of the file.
+    *   `parent`: Index of the parent directory.
+*   **Building:** Scans the entire disk at boot (or background).
+*   **Benefit:** Browsing files is instant. No disk access required until a file is opened.
+
+### 7.2 Memory Usage
+The dircache can consume MBs of RAM. It lives in the "Audio Buffer" until music playback starts. When playback begins, the dircache is compacted or partially discarded to make room for audio data.
+
+---
+
+## 8. Multi-Driver Storage (Dual Boot & Dual Card)
+Rockbox supports targets with multiple storage mediums (e.g., iRiver H120 with Internal HDD + CF Card).
+
+### 8.1 The Drive Map
+```c
+/* firmware/export/config.h */
+#define DRIVE0_TYPE     DRIVE_ATA
+#define DRIVE1_TYPE     DRIVE_MMC
+```
+
+### 8.2 The Dispatcher (`disk.c`)
+The dispatcher routes calls based on the drive index.
+```c
+int storage_read_sectors(int drive, ...) {
+    if (drive == 0)
+        return ata_driver.read_sectors(...);
+    else
+        return mmc_driver.read_sectors(...);
+}
+```
+
+---
+
+## 9. Sector Caching Strategies (`disk_cache.c`)
+Rockbox employs a unified LRU cache for disk sectors to reduce I/O ops.
+
+### 9.1 The Cache Line
+```c
+struct cache_entry {
+    sector_t sector;
+    int drive;
+    bool dirty;
+    bool locked; /* Cannot be evicted */
+    uint8_t data[512];
+};
+```
+
+### 9.2 Write-Back Logic
+Writes are cached in RAM (`dirty = true`) and only flushed to disk when:
+1.  The cache is full and the entry is evicted.
+2.  `storage_flush()` is called explicitly (e.g., before shutdown).
+3.  The disk is about to spin down (to prevent spin-up just for a small write).
+
+---
+
+## 10. Serial Protocols: UART and Debugging
+Rockbox uses UART primarily for kernel debugging.
+
+### 10.1 The Serial Driver (`serial.c`)
+*   **FIFO:** Hardware FIFOs (usually 16 bytes) are enabled.
+*   **Interrupts:** RX interrupt enabled. TX interrupt enabled only when buffer has data.
+*   **Baud Rate:** Calculated based on the system clock `PCLK`.
+    ```c
+    /* Divisor calculation for 115200 */
+    int div = PCLK / (16 * 115200);
+    UART_IBRD = div;
+    UART_FBRD = ((PCLK % (16 * 115200)) * 64 + ...);
+    ```
+
+### 10.2 The Debug Menu
+Rockbox has a hidden debug menu accessible by holding specific keys.
+*   **`debug_menu()`:** Displays raw memory, I2C registers, and thread stacks on the LCD.
+*   **Integration:** This menu bypasses the high-level GUI and draws directly to the framebuffer for safety during crashes.
+
+---
+
+## 11. I2C Bus Architecture (`i2c-as3525.c`)
+I2C is the control plane for peripherals (PMIC, Codec, Tuner).
+
+### 11.1 Master Mode Implementation
+The AS3525 I2C controller is complex. Rockbox implements a blocking driver with timeouts.
+1.  **Start Condition:** Set `I2C_CTR_START`.
+2.  **Address:** Write Slave Address to `I2C_TXR`.
+3.  **Wait:** Poll `I2C_SR` for ACK or NACK.
+4.  **Data:** Write bytes to `I2C_TXR`.
+5.  **Stop:** Set `I2C_CTR_STOP`.
+
+### 11.2 Error Recovery
+If a slave holds SDA low (bus hang), Rockbox attempts to toggle SCL manually (bit-banging) to clock out the stuck bit and free the bus.
+
+### 11.3 Bit-Banging I2C
+Many targets lack a hardware I2C controller or use GPIOs for I2C.
+*   **`i2c-bitbang.c`:** Implements software I2C.
+*   **Timing:** Uses `udelay()` to ensure setup/hold times.
+*   **Flexibility:** Can run on any two GPIO pins.
+
+---
+
+## 12. SPI Bus Architecture (`spi.c`)
+SPI is used for high-speed peripherals like LCDs and Flash chips.
+
+### 12.1 The Shared Bus Problem
+Often, the LCD and the Flash memory share the same SPI bus (MOSI/MISO/SCK), distinguished only by the Chip Select (CS) pin.
+*   **Problem:** If the LCD driver writes to the bus while the Flash driver is reading, data corruption occurs.
+*   **Solution:** `spi_lock()` mutex ensures atomic transactions.
+
+### 12.2 Hardware SPI vs Bit-Bang
+*   **Hardware:** Uses the SoC's SPI controller (FIFO, DMA). Used for SD cards.
+*   **Bit-Bang:** Used for write-only LCDs where speed is less critical or pins are non-standard.
+
+---
+
+## 13. USB Mass Storage (The Target Side)
+Rockbox also acts as a USB Device (Mass Storage Class).
+
+### 13.1 The SCSI Transparent Command Set
+The USB driver implements a subset of SCSI commands.
+*   **READ(10) / WRITE(10):** Translates logical block addresses to physical sectors.
+*   **INQUIRY:** Returns "Rockbox Media Player".
+
+### 13.2 The Bridge
+When USB is connected:
+1.  Rockbox unmounts the filesystem (to prevent corruption).
+2.  It enters `usb_screen()`.
+3.  The USB thread loops, receiving SCSI packets and calling `storage_read_sectors()`.
+4.  The Host PC (Windows/Linux) sees a raw block device.
+
+### 13.3 The USB Stack Layers
+The USB stack (`firmware/usb/`) is layered:
+1.  **USB HAL (`usb-drv-*.c`):** Handles Endpoint interrupts and register access.
+2.  **USB Core (`usb_core.c`):** Handles Standard Requests (GET_DESCRIPTOR, SET_ADDRESS).
+3.  **USB Class (`usb_storage.c`):** Handles Bulk-Only Transport (BOT) and SCSI.
+
+---
+
+## 14. Conclusion
+Rockbox's storage stack is a lesson in bare-metal efficiency. It avoids the overhead of generic OS block layers, implementing just enough protocol logic to read sectors fast. The explicit management of DMA descriptors and FIFO watermarks allows it to sustain high throughput with minimal CPU usage, essential for battery life. For the ESP32 port, we will map this entire stack to `esp_vfs_fat`, but understanding the underlying mechanics is crucial for performance tuning.
+
+## 15. Appendix: ATA Register Details
+For completeness, here is a detailed breakdown of the ATA registers used in the `ata.c` driver.
+
+| Register | Read Function | Write Function |
+| :--- | :--- | :--- |
+| `0x1F0` | Data Register | Data Register |
+| `0x1F1` | Error Register | Feature Register |
+| `0x1F2` | Sector Count | Sector Count |
+| `0x1F3` | Sector Number (LBA 0-7) | Sector Number (LBA 0-7) |
+| `0x1F4` | Cylinder Low (LBA 8-15) | Cylinder Low (LBA 8-15) |
+| `0x1F5` | Cylinder High (LBA 16-23) | Cylinder High (LBA 16-23) |
+| `0x1F6` | Drive/Head (LBA 24-27) | Drive/Head (LBA 24-27) |
+| `0x1F7` | Status Register | Command Register |
+
+### 15.1 The Status Register Bits
+*   **Bit 7 (BSY):** Busy. Drive is executing a command.
+*   **Bit 6 (DRDY):** Drive Ready.
+*   **Bit 3 (DRQ):** Data Request. Ready to transfer data.
+*   **Bit 0 (ERR):** Error. Check Error Register.
+
+---
+
+## 16. The PL081 DMA Linked List Structure
+The Linked List Items (LLI) are the key to scatter-gather DMA.
+
+### 16.1 LLI Definition
+```c
+typedef struct {
+    uint32_t src_addr;
+    uint32_t dst_addr;
+    uint32_t next_lli;
+    uint32_t control;
+} dma_lli_t;
+```
+
+### 16.2 Chaining Logic
+To transfer a 100KB file into non-contiguous RAM buffers:
+1.  Rockbox allocates an array of LLIs in RAM.
+2.  **LLI[0].src_addr** = `&MCI_FIFO`.
+3.  **LLI[0].dst_addr** = `Buffer_A`.
+4.  **LLI[0].next_lli** = `&LLI[1]`.
+5.  **LLI[1].src_addr** = `&MCI_FIFO`.
+6.  **LLI[1].dst_addr** = `Buffer_B`.
+7.  **LLI[1].next_lli** = `0` (End of chain).
+8.  The driver writes `&LLI[0]` to `DMAC_CH0_LLI` and enables the channel.
