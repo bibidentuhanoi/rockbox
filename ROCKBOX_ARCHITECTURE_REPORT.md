@@ -1865,3 +1865,38 @@ On the ESP32-S3, this maps beautifully to the `newlib` VFS (`esp_vfs_fat_sdmmc_m
 However, the ESP-IDF FATFS `readdir()` implementation occasionally lacks full POSIX compliance, specifically regarding the `d_type` field in `struct dirent`. Rockbox relies on `d_type == DT_DIR` to instantly determine if a file is a directory while building the `dircache`, avoiding expensive `stat()` calls.
 
 If the ESP-IDF underlying FatFs configuration (`FF_USE_FASTSEEK` or `FF_USE_FIND`) does not populate `d_type`, Rockbox’s directory scanning will degrade severely in performance, requiring `stat()` for every single file on the SD card during boot. This is a subtle, deep integration flaw that must be explicitly accounted for in the ESP-IDF sdkconfig.
+
+
+## XXIV. Deep Dive Part 4: Errata & Critical Hardware Corrections
+
+Following rigorous review of the initial ESP32-S3 porting assumptions, six critical architectural oversimplifications have been identified and must be immediately corrected to ensure a viable, crash-free firmware implementation.
+
+### 1. I2S Push/Pull Impedance Mismatch
+**Error:** Section XVII casually mapped `pcm_play_data()` to `i2s_write()`.
+**Correction:** This fundamentally misunderstands Rockbox's PCM callback model. Rockbox expects an *interrupt-driven, pull-based* architecture: the DMA hardware fires an ISR when its FIFO is low, pulling `pcm_play_dma_complete_callback()` to request the next chunk from `pcm_mixer.c`. ESP-IDF's `i2s_write()` is a *push-based, blocking* API.
+**Solution:** The ESP32 port requires a dedicated FreeRTOS "Audio Feeder Task" running at `configMAX_PRIORITIES - 1`. This task sits in an infinite loop, blocking on `i2s_write()`. When `i2s_write()` unblocks (meaning the I2S DMA has consumed the buffer), the task immediately calls `pcm_play_dma_complete_callback()` to pull the next mixed buffer from Rockbox into an internal SRAM bounce-buffer, and pushes it back into `i2s_write()`.
+
+### 2. `CONFIG_SPIRAM_XIP_FROM_PSRAM` (The IRAM/Flash Savior)
+**Error:** Section XXI assumed severe IRAM crunches and mandatory static linking of codecs into `.text` (Flash).
+**Correction:** The ESP32-S3 introduces `CONFIG_SPIRAM_XIP_FROM_PSRAM`. When enabled in `sdkconfig`, the cache MMU allows `.text` (executable instructions) and `.rodata` (constants) to be physically placed in, and executed directly from, PSRAM concurrently with SPI1 flash operations.
+**Solution:** This completely shifts the flash/PSRAM tradeoff. We can place massive game plugins and heavy codec binaries directly into PSRAM. This significantly relieves the ~512KB internal SRAM crunch and allows the monolithic statically linked firmware to comfortably exceed 4MB or 8MB flash limits without crashing the device, provided the actual DMA ISRs and `esp_cache_msync` routines remain in IRAM.
+
+### 3. PSRAM-to-I2S DMA Limitations (The Bounce Buffer)
+**Error:** Section XXIII (Point 3) understated the limitations of ESP32-S3 DMA accessing external PSRAM.
+**Correction:** While the S3 hardware technically supports DMA to/from external RAM, the bandwidth is severely bottlenecked when the CPU is concurrently accessing PSRAM (e.g., the codec decoding FLAC in another thread). Furthermore, DMA transaction descriptors *cannot* be placed in PSRAM.
+**Solution:** Rockbox's main `audiobuf` (which lives in PSRAM due to its multi-megabyte size) cannot be handed directly to the I2S DMA peripheral. The "Audio Feeder Task" (from Errata 1) must allocate a small (~8KB) *Bounce Buffer* in internal SRAM (`MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA`). The task copies from the Rockbox PSRAM mix buffer into this SRAM bounce buffer, and hands the SRAM pointer to `i2s_write()`.
+
+### 4. NVS/SPIFFS Cache Disabling (The Fatal Crash)
+**Error:** Section XXIII (Point 6) casually recommended writing `config.cfg` to NVS or LittleFS.
+**Correction:** This is a fatal flaw. When the ESP-IDF writes to internal flash (NVS, SPIFFS, LittleFS), the cache is temporarily disabled. While the cache is disabled, *all external PSRAM becomes completely inaccessible*. Any read or write to PSRAM results in an immediate `Illegal Instruction` or `LoadStoreError` kernel panic.
+**Solution:** Because Rockbox's `audiobuf` and the active codec thread operate continuously in PSRAM, the user altering the volume (which might trigger an NVS save) would instantly crash the device as the codec attempts to decode the next frame. **NVS/LittleFS cannot be used for settings persistence while audio is playing.** The port must strictly mimic the hosted targets: `config.cfg` must be written exclusively to the SD card (via SDMMC VFS), which does not disable the SPI flash cache during writes.
+
+### 5. The `current_tick` Decoupling
+**Error:** Section XXIII (Point 4) proposed replacing Rockbox sleep with `vTaskDelay` but ignored the global impact of `current_tick`.
+**Correction:** The Rockbox codebase contains thousands of lines of raw arithmetic like `if (current_tick - last_update > HZ/5)`. `current_tick` is a `volatile long` incremented exactly 100 times a second (100Hz). Replacing this entirely with `xTaskGetTickCount()` (if FreeRTOS is at 1000Hz) breaks the entire UI, scrolling, double-clicks, and screen timeouts by a factor of 10.
+**Solution:** `current_tick` must be entirely decoupled from FreeRTOS `configTICK_RATE_HZ`. The dedicated 100Hz high-priority tick task (established in Errata #5) must manually execute `current_tick++` before calling `call_tick_tasks()`. This preserves Rockbox's internal mathematical assumptions perfectly, regardless of whether FreeRTOS runs at 100Hz or 1000Hz.
+
+### 6. Power Management & Sleep Modes
+**Error:** The report failed to address battery monitoring and deep sleep functionality.
+**Correction:** DAPs require meticulous power management (`powermgmt.c`). On bare-metal targets, Rockbox reads the ADC, calculates battery percentages, and issues `WFI` (Wait For Interrupt) instructions to halt the CPU.
+**Solution:** The ESP32 port must implement `powermgmt-esp32.c`. `_battery_voltage()` will map to the ESP-IDF ADC oneshot driver (`adc_oneshot_read`). For CPU sleep, rather than Rockbox managing `WFI`, the port must rely on ESP-IDF's Automatic Light Sleep (`esp_pm_config_t`). When FreeRTOS enters the Idle Task (because the UI is waiting on `button_queue` and the Codec is blocked on the full audio buffer), ESP-IDF will automatically power down the CPU cores and drop the APB clock frequency, waking transparently on the next I2S DMA interrupt or GPIO button press.
