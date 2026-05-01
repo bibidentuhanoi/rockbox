@@ -22,13 +22,6 @@
 #include <math.h>
 #include <stdlib.h>         /* EXIT_SUCCESS */
 #include <stdio.h>
-
-#include <3ds/types.h>
-#include <3ds/services/apt.h>
-#include <3ds/services/hid.h>
-#include <3ds/services/mcuhwc.h>
-#include <3ds/services/dsp.h>
-
 #include "config.h"
 #include "button.h"
 #include "kernel.h"
@@ -44,6 +37,12 @@
 #include "misc.h"
 
 #include "touchscreen.h"
+
+#include <3ds/types.h>
+#include <3ds/services/apt.h>
+#include <3ds/services/hid.h>
+#include <3ds/services/mcuhwc.h>
+#include <3ds/services/dsp.h>
 
 static u8 old_slider_level = 0;
 static int last_y, last_x;
@@ -136,6 +135,9 @@ int button_read_device(int* data)
     }
     if (kDown & KEY_DDOWN) {
         key |= BUTTON_DOWN;
+    }
+    if (kDown & KEY_START) {
+        key |= BUTTON_POWER;
     }
 
     touchPosition touch;

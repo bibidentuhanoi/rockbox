@@ -374,6 +374,9 @@ enum codec_status codec_run(void)
     int skip = 0;
     int64_t seek_target;
     uint64_t granule_pos;
+#ifdef ESP32
+    int64_t decoded_samples = 0; /* running sample count for smooth elapsed */
+#endif
 
     ogg_malloc_init();
 
@@ -422,6 +425,9 @@ enum codec_status codec_run(void)
                 /* reset the state to help ensure that subsequent packets won't
                    use state set by unrelated packets processed before seek */
                 opus_decoder_ctl(st, OPUS_RESET_STATE);
+#ifdef ESP32
+                decoded_samples = seek_target + skip;
+#endif
             }
 
             ci->set_elapsed(param);
@@ -452,7 +458,12 @@ enum codec_status codec_run(void)
             page_granule = ogg_page_granulepos(&og);
             granule_pos = page_granule;
 
+#ifdef ESP32
+            /* Decode e_o_s packet (has valid audio) instead of skipping it */
+            while (ogg_stream_packetout(os, &op) == 1) {
+#else
             while ((ogg_stream_packetout(os, &op) == 1) && !op.e_o_s) {
+#endif
                 if (op.packetno == 0){
                     /* identification header */
 
@@ -498,6 +509,36 @@ enum codec_status codec_run(void)
                     ogg_sync_reset(oy); /* next page */
                     break;
                 } else {
+#ifdef ESP32
+                    /* Decode audio packets */
+                    ret = opus_decode(st, op.packet, op.bytes, output, MAX_FRAME_SIZE, 0);
+
+                    if (ret > skip) {
+                        int play = ret - skip;
+                        ci->pcmbuf_insert(&output[skip * header->channels], NULL, play);
+
+                        /* per-packet elapsed for smooth timeline */
+                        decoded_samples += ret;
+                        ci->set_offset((size_t) ci->curpos);
+                        if (decoded_samples > header->preskip)
+                            ci->set_elapsed((decoded_samples - header->preskip) / 48);
+                        skip = 0;
+                    } else {
+                        if (ret < 0) {
+                            LOGF("opus_decode failed %d", ret);
+                            goto done;
+                        } else if (ret == 0)
+                            break;
+                        else {
+                            decoded_samples += ret;
+                            skip -= ret;
+                        }
+                    }
+
+                    /* end of stream — last packet decoded, exit cleanly */
+                    if (op.e_o_s)
+                        goto done_ok;
+#else
                     /* report progress */
                     ci->set_offset((size_t) ci->curpos);
                     ci->set_elapsed((granule_pos - header->preskip) / 48);
@@ -506,7 +547,6 @@ enum codec_status codec_run(void)
                     ret = opus_decode(st, op.packet, op.bytes, output, MAX_FRAME_SIZE, 0);
 
                     if (ret > skip) {
-                        /* part of or entire output buffer is played */
                         ret -= skip;
                         ci->pcmbuf_insert(&output[skip * header->channels], NULL, ret);
                         skip = 0;
@@ -517,15 +557,17 @@ enum codec_status codec_run(void)
                         } else if (ret == 0)
                             break;
                         else {
-                            /* entire output buffer is skipped */
                             skip -= ret;
-                            ret = 0;
                         }
                     }
+#endif
                 }
             }
         }
     }
+#ifdef ESP32
+done_ok:
+#endif
     LOGF("Returned OK");
     error = CODEC_OK;
 done:

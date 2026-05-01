@@ -24,6 +24,7 @@
 #include <codecs/libmad/mad.h>
 #include <inttypes.h>
 
+
 CODEC_HEADER
 
 #if NUM_CORES > 1 && !defined(MPEGPLAYER)

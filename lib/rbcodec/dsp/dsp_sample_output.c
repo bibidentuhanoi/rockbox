@@ -27,13 +27,6 @@
 #include "dsp-util.h"
 #include <string.h>
 
-#if 0
-#include <debug.h>
-#else
-#undef DEBUGF
-#define DEBUGF(...)
-#endif
-
 /* May be implemented in here or externally.*/
 void sample_output_mono(struct sample_io_data *this,
                         struct dsp_buffer *src, struct dsp_buffer *dst);

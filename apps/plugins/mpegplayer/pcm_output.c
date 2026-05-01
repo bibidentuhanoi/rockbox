@@ -173,10 +173,6 @@ static void get_more(const void **start, size_t *size)
         pcmbuf_read = pcmbuf_written;
 }
 
-static const struct mixer_play_cbs mixer_cbs = {
-    .get_more = get_more,
-};
-
 /** Public interface **/
 
 /* Return a buffer pointer if at least size bytes are available and if so,
@@ -240,7 +236,8 @@ void pcm_output_flush(void)
 
     /* Restart if playing state was current */
     if (status == CHANNEL_PLAYING)
-        rb->mixer_channel_play_data(MPEG_PCM_CHANNEL, &mixer_cbs, NULL, 0);
+        rb->mixer_channel_play_data(MPEG_PCM_CHANNEL,
+                                    get_more, NULL, 0);
 }
 
 /* Seek the reference clock to the specified time - next audio data ready to
@@ -321,7 +318,8 @@ void pcm_output_play_pause(bool play)
         if (play)
         {
             rb->mixer_channel_set_amplitude(MPEG_PCM_CHANNEL, MIX_AMP_UNITY);
-            rb->mixer_channel_play_data(MPEG_PCM_CHANNEL, &mixer_cbs, NULL, 0);
+            rb->mixer_channel_play_data(MPEG_PCM_CHANNEL,
+                                        get_more, NULL, 0);
         }
     }
 }

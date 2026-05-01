@@ -495,6 +495,16 @@
 #define ROCKBLOX_DROP          BUTTON_SELECT
 #define ROCKBLOX_RESTART       BUTTON_USER
 
+#elif CONFIG_KEYPAD == ESP32_PAD
+#define ROCKBLOX_OFF            BUTTON_POWER
+#define ROCKBLOX_ROTATE_CCW     BUTTON_BACK
+#define ROCKBLOX_ROTATE_CW      BUTTON_UP
+#define ROCKBLOX_DOWN           BUTTON_DOWN
+#define ROCKBLOX_LEFT           BUTTON_LEFT
+#define ROCKBLOX_RIGHT          BUTTON_RIGHT
+#define ROCKBLOX_DROP           BUTTON_SELECT
+#define ROCKBLOX_RESTART        (BUTTON_POWER|BUTTON_REPEAT)
+
 #else
 #error No keymap defined!
 #endif

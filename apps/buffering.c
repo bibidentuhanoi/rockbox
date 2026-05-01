@@ -1318,7 +1318,6 @@ static struct memory_handle *prep_bufdata(int handle_id, size_t *size,
         return NULL;
 
     if (h->pos >= h->filesize) {
-        /* File is finished reading */
         *size = 0;
         return h;
     }
@@ -1341,7 +1340,6 @@ static struct memory_handle *prep_bufdata(int handle_id, size_t *size,
     off_t wait_end = h->pos + realsize;
 
     if (end < wait_end && end < h->filesize) {
-        /* Wait for the data to be ready */
         unsigned int request = 1;
 
         do
@@ -1360,16 +1358,18 @@ static struct memory_handle *prep_bufdata(int handle_id, size_t *size,
             if (!h)
                 return NULL;
 
-            if (h->signaled != 0)
+            if (h->signaled != 0) {
                 return NULL; /* Wait must be abandoned */
+            }
 
             end = h->end;
         }
         while (end < wait_end && end < h->filesize);
 
         filerem = h->filesize - h->pos;
-        if (realsize > filerem)
+        if (realsize > filerem) {
             realsize = filerem;
+        }
     }
 
     *size = realsize;

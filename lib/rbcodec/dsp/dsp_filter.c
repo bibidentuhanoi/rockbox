@@ -277,7 +277,48 @@ void filter_flush(struct dsp_filter *f)
  * form 1 was chosen because of better numerical properties for fixed point
  * implementations.
  */
-#if (!defined(CPU_COLDFIRE) && !defined(CPU_ARM)) || defined(CPU_ARM_MICRO)
+#if defined(ESP32)
+void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
+                    unsigned int channels)
+{
+    /* ESP32-S3 hardware FPU version — compiler emits mul.s / madd.s.
+     *
+     * Original fixed-point: result = (sum(sample * coef) << shift) >> 32
+     * Float equivalent:     result = sum(sample * coef * 2^(shift-32))
+     *
+     * Pre-scale coefficients once per call (not per sample).
+     * float32 mantissa is 24 bits — sufficient since output goes to 16-bit I2S.
+     */
+    const float scale = 1.0f / (float)(1U << (32 - f->shift));
+    const float b0 = (float)f->coefs[0] * scale;
+    const float b1 = (float)f->coefs[1] * scale;
+    const float b2 = (float)f->coefs[2] * scale;
+    const float a1 = (float)f->coefs[3] * scale;
+    const float a2 = (float)f->coefs[4] * scale;
+
+    for (unsigned int c = 0; c < channels; c++) {
+        float x1 = (float)f->history[c][0];
+        float x2 = (float)f->history[c][1];
+        float y1 = (float)f->history[c][2];
+        float y2 = (float)f->history[c][3];
+
+        for (int i = 0; i < count; i++) {
+            float x = (float)buf[c][i];
+            float y = b0*x + b1*x1 + b2*x2 + a1*y1 + a2*y2;
+            x2 = x1;
+            x1 = x;
+            y2 = y1;
+            y1 = y;
+            buf[c][i] = (int32_t)y;
+        }
+
+        f->history[c][0] = (int32_t)x1;
+        f->history[c][1] = (int32_t)x2;
+        f->history[c][2] = (int32_t)y1;
+        f->history[c][3] = (int32_t)y2;
+    }
+}
+#elif (!defined(CPU_COLDFIRE) && !defined(CPU_ARM)) || defined(CPU_ARM_MICRO)
 void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
                     unsigned int channels)
 {

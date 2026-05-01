@@ -1441,10 +1441,6 @@ static void waveform_buffer_callback(const void *start, size_t size)
     waveform_buffer_have = have + copy;
 }
 
-static const struct mixer_buffer_cbs buf_cbs = {
-    .next_buffer = waveform_buffer_callback,
-};
-
 static void waveform_buffer_reset(void)
 {
     /* only called when callback is off */
@@ -1913,7 +1909,7 @@ static void graphmode_setup(void)
     if (osc.graphmode == GRAPH_WAVEFORM)
     {
         rb->mixer_channel_set_buffer_hook(channel,
-                                          &buf_cbs);
+                                          waveform_buffer_callback);
 #ifdef HAVE_SCHEDULER_BOOSTCTRL
         rb->trigger_cpu_boost(); /* Just looks better */
 #endif
@@ -2017,7 +2013,7 @@ void switch_channel(enum pcm_mixer_channel new_channel)
 
 #ifdef OSCILLOSCOPE_GRAPHMODE
     if (osc.graphmode == GRAPH_WAVEFORM)
-        rb->mixer_channel_set_buffer_hook(channel, &buf_cbs);
+        rb->mixer_channel_set_buffer_hook(channel, waveform_buffer_callback);
 #endif
 }
 #endif /* USB_ENABLE_AUDIO */

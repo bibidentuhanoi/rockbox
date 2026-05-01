@@ -20,3 +20,12 @@
 
 void _EXFUN(__assert,(const char *, int, const char *));
 
+/* Provide static_assert for C11+ so ESP-IDF headers that do
+ * #include "assert.h" (and find this file before the system one)
+ * still get a working static_assert / _Static_assert alias. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#ifndef static_assert
+#define static_assert _Static_assert
+#endif
+#endif
+

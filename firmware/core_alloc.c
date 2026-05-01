@@ -1,23 +1,4 @@
-/***************************************************************************
- *             __________               __   ___.
- *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
- *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
- *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
- *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
- *                     \/            \/     \/    \/            \/
- * $Id$
- *
- * Copyright (C) 2011 Thomas Martitz
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
- * KIND, either express or implied.
- *
- ****************************************************************************/
+
 #include "config.h"
 #include <string.h>
 #include "system.h"
@@ -49,8 +30,14 @@ extern unsigned char audiobufend[];
 #endif
 
 #else /* PLATFORM_HOSTED */
+#ifdef ESP32
+#include "esp_heap_caps.h"
+static unsigned char *audiobuffer;
+unsigned char *audiobufend;
+#else
 static unsigned char audiobuffer[(MEMORYSIZE-1)*1024*1024];
 unsigned char *audiobufend = audiobuffer + sizeof(audiobuffer);
+#endif
 #endif
 
 #ifdef BUFLIB_DEBUG_PRINT
@@ -60,6 +47,13 @@ static int test_alloc;
 
 void core_allocator_init(void)
 {
+#ifdef ESP32
+    if (!audiobuffer) {
+        size_t sz = (MEMORYSIZE - 1) * 1024 * 1024;
+        audiobuffer = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
+        audiobufend = audiobuffer + sz;
+    }
+#endif
     unsigned char *start = ALIGN_UP(audiobuffer, sizeof(intptr_t));
 
 #if defined(IPOD_VIDEO) && !defined(BOOTLOADER) && !defined(SIMULATOR)

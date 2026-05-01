@@ -49,7 +49,6 @@
 #define F_LCD_AF9    GPIOF_FUNCTION(9, GPIO_TYPE_PUSH_PULL, GPIO_SPEED_MEDIUM, GPIO_PULL_DISABLED)
 #define F_LPTIM4_OUT GPIOF_FUNCTION(3, GPIO_TYPE_PUSH_PULL, GPIO_SPEED_LOW, GPIO_PULL_DISABLED)
 #define F_LPTIM1_OUT GPIOF_FUNCTION(1, GPIO_TYPE_PUSH_PULL, GPIO_SPEED_VERYHIGH, GPIO_PULL_DISABLED)
-#define F_ANALOG     GPIOF_ANALOG()
 
 #if STM32H743_USBOTG_INSTANCE == STM32H743_USBOTG_INSTANCE_USB1
 # define F_OTG_FS   GPIOF_ANALOG()
@@ -91,8 +90,6 @@ static const struct gpio_setting gpios[] = {
     STM_DEFGPIO(GPIO_LCD_RESET,         F_OUT_LS(0)), /* active low */
     STM_DEFGPIO(GPIO_BACKLIGHT,         F_LPTIM1_OUT),
     STM_DEFGPIO(GPIO_USB_VBUS,          F_INPUT),     /* active high */
-    STM_DEFGPIO(GPIO_ADC_VBAT,          F_ANALOG),
-    STM_DEFGPIO(GPIO_ADC_VBUS,          F_ANALOG),
 };
 
 /* TODO - replace hex constants - there are probably mistakes here */
@@ -136,7 +133,7 @@ static const struct pingroup_setting pingroups[] = {
 INIT_ATTR static void fmc_init(void)
 {
     /* configure clock */
-    reg_writef(RCC_D1CCIPR, FMCSEL_V(PLL1Q));
+    reg_writef(RCC_D1CCIPR, FMCSEL_V(AHB));
 
     /* ungate FMC peripheral */
     reg_writef(RCC_AHB3ENR, FMCEN(1));

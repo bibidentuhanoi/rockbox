@@ -558,6 +558,17 @@ F3: equal to "="
 #define CALCULATOR_CALC  BUTTON_MENU
 #define CALCULATOR_CLEAR BUTTON_USER
 
+#elif CONFIG_KEYPAD == ESP32_PAD
+
+#define CALCULATOR_LEFT  BUTTON_LEFT
+#define CALCULATOR_RIGHT BUTTON_RIGHT
+#define CALCULATOR_UP    BUTTON_UP
+#define CALCULATOR_DOWN  BUTTON_DOWN
+#define CALCULATOR_QUIT  BUTTON_BACK
+#define CALCULATOR_INPUT BUTTON_SELECT
+#define CALCULATOR_CALC  BUTTON_MENU
+#define CALCULATOR_CLEAR BUTTON_USER
+
 #else
 #error No keymap defined!
 #endif
@@ -651,30 +662,47 @@ unsigned char buf[19];/* 18 bytes of output line,
 
                          buf[18] = '\0'                    */
 
-unsigned char typingbuf[DIGITLEN+2];/* byte 0 is sign or ' ',
-                                       byte 1~DIGITLEN are num and '.'
-                                       byte (DIGITLEN+1) is '\0' */
+unsigned char typingbuf[DIGITLEN+2];
+
+#ifdef ESP32
+unsigned char* typingbufPointer;
+#else
 unsigned char* typingbufPointer = typingbuf;
+#endif
 
-double result = 0;          /*  main operand, format 0.xxxxx     */
-int power = 0;              /*  10^power                         */
-double modifier = 0.1;      /*  position of next input           */
-double operand = 0;         /*  second operand, format 0.xxxxx   */
-int operandPower = 0;       /*  10^power of second operand       */
-char oper = ' ';            /*  operators: + - * /               */
-bool operInputted = false;  /*  false: do calculation first and
-                                       replace current oper
-                                true:  just replace current oper */
+#ifdef ESP32
+double result;
+int power;
+double modifier;
+double operand;
+int operandPower;
+char oper;
+bool operInputted;
+double memTemp;
+int memTempPower;
+#else
+double result = 0;
+int power = 0;
+double modifier = 0.1;
+double operand = 0;
+int operandPower = 0;
+char oper = ' ';
+bool operInputted = false;
+double memTemp = 0;
+int memTempPower = 0;
+#endif
 
-double memTemp = 0;         /* temp memory                       */
-int memTempPower = 0;       /* 10^^power of memTemp              */
-
-int btn_row, btn_col;       /* current position index for button */
-int prev_btn_row, prev_btn_col; /* previous cursor position      */
+int btn_row, btn_col;
+int prev_btn_row, prev_btn_col;
 #define CAL_BUTTON (btn_row*5+btn_col)
 
+#ifdef ESP32
+int btn;
+int lastbtn;
+#else
 int btn = BUTTON_NONE;
 int lastbtn = BUTTON_NONE;
+#endif
 
 /* Status of calculator */
 enum {cal_normal,  /* 0, normal status, display result */

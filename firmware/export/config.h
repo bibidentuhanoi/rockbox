@@ -63,6 +63,7 @@
 #define PP5022       5022
 #define PP5024       5024
 #define PP6100       6100
+#define PNX0101       101
 #define S3C2440      2440
 #define DSC25          25
 #define DM320         320
@@ -94,6 +95,7 @@
 #define PLATFORM_ANDROID (1<<2)
 #define PLATFORM_SDL     (1<<3)
 #define PLATFORM_CTRU    (1<<4)
+#define PLATFORM_ESP32   (1<<5)
 
 /* CONFIG_KEYPAD */
 #define IRIVER_H100_PAD     4
@@ -158,6 +160,7 @@
 #define RG_NANO_PAD        77
 #define CTRU_PAD           78
 #define HIBY_R3PROII_PAD   79
+#define ESP32_PAD          80
 
 /* CONFIG_REMOTE_KEYPAD */
 #define H100_REMOTE   1
@@ -300,6 +303,7 @@ Lyre prototype 1 */
 #define I2C_COLDFIRE 3 /* Coldfire style */
 #define I2C_PP5002   4 /* PP5002 style */
 #define I2C_PP5020   5 /* PP5020 style */
+#define I2C_PNX0101  6 /* PNX0101 style */
 #define I2C_S3C2440  7
 #define I2C_PP5024   8 /* PP5024 style */
 #define I2C_IMX31L   9
@@ -581,6 +585,8 @@ Lyre prototype 1 */
 #include "config/hibyr3proii.h"
 #elif defined(HIBY_R1)
 #include "config/hibyr1.h"
+#elif defined(ESP32)
+#include "config/esp32.h"
 #else
 #error "unknown hardware platform!"
 #endif
@@ -686,7 +692,7 @@ Lyre prototype 1 */
 #endif
 
 /* define for all cpus from ARM7TDMI family (for specific optimisations) */
-#if defined(CPU_PP) || (CONFIG_CPU == DSC25)
+#if defined(CPU_PP) || (CONFIG_CPU == PNX0101) || (CONFIG_CPU == DSC25)
 #define CPU_ARM7TDMI
 #endif
 
@@ -1148,6 +1154,7 @@ Lyre prototype 1 */
 #if defined(CPU_COLDFIRE) || \
     defined(CPU_PP) || \
     defined(CPU_S5L87XX) || \
+    (CONFIG_CPU == PNX0101) || \
     (CONFIG_CPU == TCC7801)
 # define USE_IRAM
 
@@ -1361,13 +1368,6 @@ Lyre prototype 1 */
 #define USB_LEGACY_CONTROL_API
 //#define USB_HAS_INTERRUPT -- seems to be broken
 #endif /* CONFIG_USBOTG */
-
-#if CONFIG_USBOTG == USBOTG_ARC
-#define USB_BATCH_SLOTS 16
-#else
-#define USB_BATCH_NON_NATIVE
-#define USB_BATCH_SLOTS 1
-#endif
 
 /* define the class drivers to enable */
 #ifdef BOOTLOADER

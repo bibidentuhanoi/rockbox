@@ -54,6 +54,8 @@
 #include "tree.h"
 #if CONFIG_TUNER
 #include "radio.h"
+#elif defined(HAVE_IRADIO)
+#include "radio/iradio.h"
 #endif
 #ifdef HAVE_RECORDING
 #include "recording.h"
@@ -394,6 +396,13 @@ static int radio(void* param)
     radio_screen();
     return GO_TO_ROOT;
 }
+#elif defined(HAVE_IRADIO)
+static int radio(void* param)
+{
+    (void)param;
+    iradio_screen();
+    return GO_TO_ROOT;
+}
 #endif
 
 static int miscscrn(void * param)
@@ -481,6 +490,8 @@ static const struct root_items items[] = {
 
 #if CONFIG_TUNER
     [GO_TO_FM] =            { radio, NULL, &radio_settings_menu },
+#elif defined(HAVE_IRADIO)
+    [GO_TO_FM] =            { radio, NULL, NULL },
 #endif
 
     [GO_TO_RECENTBMARKS] =  { load_bmarks, NULL, &bookmark_settings_menu },
@@ -527,6 +538,9 @@ MENUITEM_RETURNVALUE(rec, ID2P(LANG_RECORDING), GO_TO_RECSCREEN,
 #if CONFIG_TUNER
 MENUITEM_RETURNVALUE(fm, ID2P(LANG_FM_RADIO), GO_TO_FM,
                         item_callback, Icon_Radio_screen);
+#elif defined(HAVE_IRADIO)
+MENUITEM_RETURNVALUE(fm, ID2P(LANG_FM_RADIO), GO_TO_FM,
+                        NULL, Icon_Radio_screen);
 #endif
 MENUITEM_RETURNVALUE(menu_, ID2P(LANG_SETTINGS), GO_TO_MAINMENU,
                         NULL, Icon_Submenu_Entered);
@@ -554,7 +568,7 @@ static struct menu_table menu_table[] = {
 #ifdef HAVE_RECORDING
     { "recording", &rec },
 #endif
-#if CONFIG_TUNER
+#if CONFIG_TUNER || defined(HAVE_IRADIO)
     { "radio", &fm },
 #endif
     { "playlists", &playlists },
@@ -852,7 +866,7 @@ static int root_menu_setup_screens(void)
 {
     int new_screen = next_screen;
     if (global_settings.start_in_screen == 0)
-        new_screen = global_status.last_screen;
+        new_screen = (int)global_status.last_screen;
     else
         new_screen = global_settings.start_in_screen - 2;
 
@@ -931,10 +945,25 @@ static int root_menu_setup_screens(void)
     return new_screen;
 }
 
+static int browser_default(void)
+{
+    switch (global_settings.browser_default)
+    {
+#ifdef HAVE_TAGCACHE
+        case BROWSER_DEFAULT_DB:
+            return GO_TO_DBBROWSER;
+#endif
+        case BROWSER_DEFAULT_PL_CAT:
+            return GO_TO_PLAYLISTS_SCREEN;
+        case BROWSER_DEFAULT_FILES:
+        default:
+            return GO_TO_FILEBROWSER;
+    }
+}
 
 void root_menu(void)
 {
-    int previous_browser = global_status.last_browser;
+    int previous_browser = browser_default();
     int selected = 0;
     int shortcut_origin = GO_TO_ROOT;
 
@@ -968,10 +997,10 @@ void root_menu(void)
 #endif
             case GO_TO_FILEBROWSER:
             case GO_TO_PLAYLISTS_SCREEN:
-                global_status.last_browser = previous_browser = next_screen;
+                previous_browser = next_screen;
                 goto load_next_screen;
                 break;
-#if CONFIG_TUNER
+#if CONFIG_TUNER || defined(HAVE_IRADIO)
             case GO_TO_WPS:
             case GO_TO_FM:
                 previous_music = next_screen;
@@ -1063,8 +1092,8 @@ void root_menu(void)
                         last_screen = GO_TO_PLUGIN;
                     }
                 }
-                previous_browser = (next_screen == GO_TO_WPS) ?
-                                   GO_TO_PLUGIN : global_status.last_browser;
+                previous_browser = (next_screen != GO_TO_WPS) ? browser_default() :
+                                                                GO_TO_PLUGIN;
                 break;
             }
             default:

@@ -47,7 +47,7 @@
 #include <limits.h>
 
 #ifdef CODEC
-#if defined(DEBUG) || defined(SIMULATOR)
+#if defined(DEBUG) || defined(SIMULATOR) || defined(ESP32)
 #undef DEBUGF
 #define DEBUGF  ci->debugf
 #undef LDEBUGF
@@ -190,7 +190,7 @@ struct codec_api {
     int (*memcmp)(const void *s1, const void *s2, size_t n);
     void *(*memchr)(const void *s1, int c, size_t n);
 
-#if defined(DEBUG) || defined(SIMULATOR)
+#if defined(DEBUG) || defined(SIMULATOR) || defined(ESP32)
     void (*debugf)(const char *fmt, ...) ATTRIBUTE_PRINTF(1, 2);
 #endif
 #ifdef ROCKBOX_HAS_LOGF
@@ -224,7 +224,6 @@ struct codec_api {
 
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
-    void (*panicf)(const char *msg, ...);
 };
 
 /* codec header */

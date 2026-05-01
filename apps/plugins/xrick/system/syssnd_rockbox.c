@@ -222,11 +222,8 @@ void syssnd_update(void)
 
         if (!isAudioPlaying && fillCount > 0)
         {
-            static const struct mixer_play_cbs cbs = {
-                .get_more = get_more,
-            };
+            rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, get_more, NULL, 0);
             isAudioPlaying = true;
-            rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &cbs, NULL, 0);
         }
     }
 }
@@ -256,9 +253,7 @@ bool syssnd_init(void)
 #endif
 
     rb->mixer_set_frequency(HW_FREQ_44);
-
-    /* Be sure channel is audible */
-    rb->pcmbuf_fade(false, true);
+    rb->pcm_apply_settings();
 
     rb->memset(channels, 0, sizeof(channels));
     rb->memset(mixBuffers, 0, sizeof(mixBuffers));
@@ -283,9 +278,6 @@ void syssnd_shutdown(void)
         return;
     }
 
-    /* Mute channel */
-    rb->pcmbuf_fade(false, false);
-
     /* Stop playback. */
     rb->mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
 
@@ -294,6 +286,7 @@ void syssnd_shutdown(void)
 
     /* Restore default sampling rate. */
     rb->mixer_set_frequency(HW_SAMPR_DEFAULT);
+    rb->pcm_apply_settings();
 
     rb->talk_disable(false);
 

@@ -10437,7 +10437,7 @@
 </phrase>
 <phrase>
   id: LANG_USB_MODE
-  desc: in Settings -> General -> System -> USB
+  desc: in Settings -> General -> System -> USB Mode
   user: core
   <source>
     *: "USB Mode"
@@ -14709,11 +14709,11 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_HIDE_INFO
-  desc: Hide Information
+  id: LANG_HIDE_ALBUM_TITLE_NEW
+  desc: in the pictureflow settings
   user: core
   <source>
-    *: "Hide Information"
+    *: "Hide information"
   </source>
   <dest>
     *: "Információ elrejtése"
@@ -16960,19 +16960,5 @@
   </dest>
   <voice>
     *: "Állapot bejelentése"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_USB_MENU
-  desc: in settings_menu
-  user: core
-  <source>
-    *: "USB"
-  </source>
-  <dest>
-    *: "~USB"
-  </dest>
-  <voice>
-    *: "~U S B"
   </voice>
 </phrase>

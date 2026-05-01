@@ -13,6 +13,12 @@
   #include "m68k/thread.c"
 #elif defined(CPU_MIPS)
   #include "mips/thread.c"
+#elif defined(ESP32)
+  /* ESP32 uses FreeRTOS threads via thread-esp32.c — no asm context switch.
+     Provide stubs so the generic thread.c compiles; the real implementations
+     in thread-esp32.c override every function that calls these. */
+  static FORCE_INLINE void store_context(void* addr) { (void)addr; }
+  static FORCE_INLINE void load_context(const void* addr) { (void)addr; }
 #else
   /* Nothing? OK, give up */
   #error Missing thread impl

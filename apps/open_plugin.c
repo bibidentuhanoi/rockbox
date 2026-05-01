@@ -35,7 +35,7 @@
 
 static const uint32_t open_plugin_csum = OPEN_PLUGIN_CHECKSUM;
 
-#define OP_ENTRY_SZ (sizeof(struct open_plugin_entry_t))
+static const int op_entry_sz = sizeof(struct open_plugin_entry_t);
 
 static const char* strip_rockbox_root(const char *path)
 {
@@ -49,7 +49,7 @@ static inline void op_clear_entry(struct open_plugin_entry_t *entry)
 {
     if (entry == NULL)
         return;
-    memset(entry, 0, OP_ENTRY_SZ);
+    memset(entry, 0, op_entry_sz);
     entry->lang_id = OPEN_PLUGIN_LANG_INVALID;
 }
 
@@ -78,7 +78,7 @@ static int op_find_entry(int fd, struct open_plugin_entry_t *entry,
     {
         logf("OP find_entry *Searching* hash: %x lang_id: %d", hash, lang_id);
 
-        while (read(fd, entry, OP_ENTRY_SZ) == OP_ENTRY_SZ)
+        while (read(fd, entry, op_entry_sz) == op_entry_sz)
         {
             if (entry->lang_id == lang_id || entry->hash == hash ||
                (lang_id == OPEN_PLUGIN_LANG_IGNOREALL))/* return first entry found */
@@ -167,9 +167,9 @@ static int op_update_dat(struct open_plugin_entry_t *entry, bool clear)
             lseek(fd, 0-hlc_sz, SEEK_CUR);/* back to the start of record */
             break;
         }
-        lseek(fd, OP_ENTRY_SZ - hlc_sz, SEEK_CUR); /* finish record */
+        lseek(fd, op_entry_sz - hlc_sz, SEEK_CUR); /* finish record */
     }
-    write(fd, entry, OP_ENTRY_SZ);
+    write(fd, entry, op_entry_sz);
     close(fd);
 #else /* Everyone else make a temp file */
     logf("OP update *Copying entries* %s", OPEN_PLUGIN_DAT ".tmp");
@@ -177,18 +177,18 @@ static int op_update_dat(struct open_plugin_entry_t *entry, bool clear)
 
     if (fd < 0)
         return OPEN_PLUGIN_NOT_FOUND;
-    write(fd, entry, OP_ENTRY_SZ);
+    write(fd, entry, op_entry_sz);
 
     int fd1 = open(OPEN_PLUGIN_DAT, O_RDONLY);
     if (fd1 >= 0)
     {
         /* copy non-duplicate entries back from original */
-        while (read(fd1, entry, OP_ENTRY_SZ) == OP_ENTRY_SZ)
+        while (read(fd1, entry, op_entry_sz) == op_entry_sz)
         {
             if (entry->hash != hash && entry->lang_id != lang_id &&
                op_entry_checksum(entry) > 0)
             {
-                write(fd, entry, OP_ENTRY_SZ);
+                write(fd, entry, op_entry_sz);
             }
         }
         close(fd1);
@@ -479,10 +479,6 @@ int open_plugin_run(const char *key)
 {
     int ret = 0;
     int opret = open_plugin_load_entry(key);
-    if (opret == OPEN_PLUGIN_NOT_FOUND) {
-        splashf(HZ*2, ID2P(LANG_PLUGIN_CANT_OPEN), key ? P2STR((unsigned char *)key) : "");
-        return ret;
-    }
     struct open_plugin_entry_t *op_entry = open_plugin_get_entry();
     if (opret == OPEN_PLUGIN_NEEDS_FLUSHED)
         op_update_dat(op_entry, false);
@@ -529,13 +525,41 @@ static bool op_entry_read(int fd, int selected_item, off_t data_sz, struct open_
 {
     op_clear_entry(op_entry);
     return ((selected_item >= 0) && (fd >= 0) &&
-        (lseek(fd, selected_item  * OP_ENTRY_SZ, SEEK_SET) >= 0) &&
+        (lseek(fd, selected_item  * op_entry_sz, SEEK_SET) >= 0) &&
         (read(fd, op_entry, data_sz) == data_sz) && op_entry_checksum(op_entry) > 0);
 }
 
-void open_plugin_import(const char *cfg_file)
+void open_plugin_import(char *strdat)
 {
-    plugin_load(VIEWERS_DIR"/open_plugins.rock", cfg_file);
+    /* Note: Destroys strdat */
+    char *vect[5];
+    /* expected openplugin strdat: "englishid", "name", "path", "param" */
+
+    if (split_string(strdat, ',', vect, 5) == 4)
+    {
+        /* Space for 5 values so we will fail if excess arguments or too few */
+        for(int i = 0; i < 4; i++)
+        {
+            vect[i] = skip_whitespace(vect[i]);
+            int eos = ((int)strlen(vect[i]))-2;
+            /* Failure if string is not quoted */
+            if (vect[i][0] != '"' || eos < 0 || vect[i][eos + 1] != '"')
+            {
+                logf("%s[%d] error: quoted string expected\n", __func__, i);
+                return;
+            }
+            vect[i]++; /* skip first " */
+            vect[i][eos] = '\0'; /* skip other " */
+        }
+        char *key = vect[1];
+        int lang_id = lang_english_to_id(vect[0]);
+        if (lang_id >= 0)
+            key = ID2P(lang_id);
+        /* if key exists it will be overwritten */
+        open_plugin_add_path(key, vect[2], vect[3]);
+        return;
+    }
+    logf("%s error: importing entries", __func__);
 }
 
 void open_plugin_export(int cfg_fd)
@@ -556,7 +580,7 @@ void open_plugin_export(int cfg_fd)
         logf("%s error: opening %s", __func__, OPEN_PLUGIN_DAT);
         return;  /* OPEN_PLUGIN_NOT_FOUND */
     }
-    while (op_entry_read(fd, index++, OP_ENTRY_SZ, op_entry))
+    while (op_entry_read(fd, index++, op_entry_sz, op_entry))
     {
         /* don't save the LANG_OPEN_PLUGIN entry -- it is for internal use */
         if (op_entry->lang_id == LANG_OPEN_PLUGIN)
@@ -568,16 +592,8 @@ void open_plugin_export(int cfg_fd)
         else
             lang_name = "[USER]"; /* needs to be an invalid lang string */
 
-        bool dblquote = strchr(op_entry->name, '"') != NULL ||
-                        strchr(op_entry->param, '"') != NULL;
-        const char* fmtstr = "%s: \"%s\", \"%s\", \"%s\", \"%s\"\n";
-
-        if (dblquote) /* if using double quotes export with single quotes */
-        {
-            fmtstr = "%s: '%s', '%s', '%s', '%s'\n";
-        }
-        fdprintf(cfg_fd, fmtstr, OPEN_PLUGIN_CFGNAME,
-                 lang_name, op_entry->name, op_entry->path, op_entry->param);
+        fdprintf(cfg_fd,"%s: \"%s\", \"%s\", \"%s\", \"%s\"\n",
+                 "openplugin", lang_name, op_entry->name, op_entry->path, op_entry->param);
 
         logf("openplugin[%d]: \"%s\", \"%s\", \"%s\", \"%s\"\n lang id: %d hash: %x, csum: %x\n",
                  index, lang_name, op_entry->name, op_entry->path, op_entry->param,

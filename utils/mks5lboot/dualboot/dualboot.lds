@@ -1,4 +1,4 @@
-#define __ASSEMBLER__
+#define ASM
 #include "config.h"
 #include "cpu.h"
 #include "mks5lboot.h"

@@ -59,10 +59,6 @@
 #include "onplay.h"
 #include "misc.h"
 
-#if defined(DX50) || defined(DX90) || (defined(HAVE_USB_POWER) && !defined(USB_NONE) && !defined(SIMULATOR))
-#define HAVE_USB_MODE
-#endif
-
 #ifndef HAS_BUTTON_HOLD
 static int selectivesoftlock_callback(int action,
                                       const struct menu_item_ex *this_item,
@@ -275,7 +271,7 @@ MAKE_MENU(battery_menu, ID2P(LANG_BATTERY_MENU), 0, Icon_NOICON,
             &usb_charging,
 #endif
          );
-#ifdef HAVE_USB_MODE
+#if defined(DX50) || defined(DX90) || (defined(HAVE_USB_POWER) && !defined(USB_NONE) && !defined(SIMULATOR))
 MENUITEM_SETTING(usb_mode, &global_settings.usb_mode, NULL);
 #endif
 #if defined(HAVE_GENERAL_PURPOSE_LED)
@@ -415,22 +411,6 @@ MAKE_MENU(sel_softlock, ID2P(LANG_SOFTLOCK_SELECTIVE),
 MENUITEM_SETTING(governor, &global_settings.governor, NULL);
 #endif
 
-MAKE_MENU(usb_menu, ID2P(LANG_USB_MENU), 0, Icon_NOICON,
-#ifdef USB_ENABLE_HID
-            &usb_hid,
-            &usb_keypad_mode,
-#endif
-#ifdef USB_ENABLE_AUDIO
-            &usb_audio,
-#endif
-#if defined(USB_ENABLE_STORAGE) && defined(HAVE_MULTIDRIVE)
-            &usb_skip_first_drive,
-#endif
-#ifdef HAVE_USB_MODE
-            &usb_mode,
-#endif
-         );
-
 MAKE_MENU(system_menu, ID2P(LANG_SYSTEM),
           0, Icon_System_menu,
 #if (BATTERY_CAPACITY_INC > 0) || defined(HAVE_USB_CHARGING_ENABLE)
@@ -478,14 +458,22 @@ MAKE_MENU(system_menu, ID2P(LANG_SYSTEM),
 #ifndef HAS_BUTTON_HOLD
             &sel_softlock,
 #endif
-#if defined(USB_ENABLE_HID) || \
-    defined(USB_ENABLE_AUDIO) || \
-    (defined(USB_ENABLE_STORAGE) && defined(HAVE_MULTIDRIVE)) || \
-    defined(HAVE_USB_MODE)
-            &usb_menu,
+#ifdef USB_ENABLE_HID
+            &usb_hid,
+            &usb_keypad_mode,
 #endif
+#ifdef USB_ENABLE_AUDIO
+            &usb_audio,
+#endif
+#if defined(USB_ENABLE_STORAGE) && defined(HAVE_MULTIDRIVE)
+            &usb_skip_first_drive,
+#endif
+
 #if defined(DX50) || defined(DX90)
             &governor,
+#endif
+#if defined(DX50) || defined(DX90) || (defined(HAVE_USB_POWER) && !defined(USB_NONE) && !defined(SIMULATOR))
+            &usb_mode,
 #endif
 #if defined(HAVE_GENERAL_PURPOSE_LED)
             &use_led_indicators,
@@ -737,12 +725,15 @@ MENUITEM_FUNCTION(wps_set_context_plugin, 0,
 /***********************************/
 /*    WPS Settings MENU            */
 
+MENUITEM_SETTING(browser_default,
+                 &global_settings.browser_default, NULL);
 
 #ifdef HAVE_HOTKEY
 MENUITEM_SETTING(hotkey_wps_item, &global_settings.hotkey_wps, NULL);
 #endif
 
 MAKE_MENU(wps_settings, ID2P(LANG_WPS), 0, Icon_Playback_menu
+            ,&browser_default
 #ifdef HAVE_HOTKEY
             ,&hotkey_wps_item
 #endif

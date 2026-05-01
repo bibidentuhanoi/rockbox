@@ -12856,7 +12856,7 @@
 </phrase>
 <phrase>
   id: LANG_USB_MODE
-  desc: in Settings -> General -> System -> USB
+  desc: in Settings -> General -> System -> USB Mode
   user: core
   <source>
     *: "USB Mode"

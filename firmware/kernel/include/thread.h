@@ -89,14 +89,21 @@ struct thread_entry;
  *
  * simulator (possibly) doesn't simulate stack usage anyway but well ... */
 
-#if defined(HAVE_SDL_THREADS) || defined(__PCTOOL__) || defined(CTRU)
+#if defined(HAVE_SDL_THREADS) || defined(__PCTOOL__) || defined(CTRU) || defined(ESP32)
+#ifndef DEFAULT_STACK_SIZE
 #define DEFAULT_STACK_SIZE 0x100 /* tiny, ignored anyway */
+#endif
 #else
 #include "asm/thread.h"
 #endif /* HAVE_SDL_THREADS */
 
 extern void yield(void);
+#ifdef ESP32
+extern unsigned __wrap_sleep(unsigned ticks);
+#define sleep __wrap_sleep
+#else
 extern unsigned sleep(unsigned ticks);
+#endif
 
 #ifdef HAVE_PRIORITY_SCHEDULING
 #define IF_PRIO(...)    __VA_ARGS__

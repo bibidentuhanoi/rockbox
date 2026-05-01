@@ -454,7 +454,7 @@ int ft_load(struct tree_context* c, const char* tempdir)
 
     tree_unlock_cache(c);
 
-    if (global_settings.keep_directory && get_current_activity() == ACTIVITY_FILEBROWSER)
+    if (global_settings.keep_directory)
     {
         path_append(global_status.browse_last_folder, c->currdir, PA_SEP_HARD,
                     sizeof(global_status.browse_last_folder));
@@ -547,16 +547,29 @@ int ft_assemble_path(char *buf, size_t bufsz, const char* currdir, const char* f
     }
 #else
     /* Other devices might need a specific drive/dir prepended but its usually '/' */
-    if (*cd != '\0') /* Not in / */
     {
-        len = path_append(buf, root_realpath(), cd, bufsz);/* /currdir */
-        if(len < bufsz)
-            len += path_append(buf + len, PA_SEP_HARD, filename, bufsz - len);
-    } /* buf => /currdir/filename */
-    else /* In / */
-    {
-        len = path_append(buf, root_realpath(), filename, bufsz);
-    }  /* buf => /filename */
+        const char *root = root_realpath();
+        size_t root_len = strlen(root);
+        /* If currdir already starts with root (e.g. ESP32 where root="/rockbox"
+           and currdir="/rockbox/.rockbox/eqs"), use currdir directly to avoid
+           double-prefixing: "/rockbox" + "rockbox/.rockbox/eqs" */
+        bool already_rooted = (root_len > 1 &&
+                               strncmp(currdir, root, root_len) == 0);
+
+        if (*cd != '\0') /* Not in / */
+        {
+            if (already_rooted)
+                len = strlcpy(buf, currdir, bufsz);
+            else
+                len = path_append(buf, root, cd, bufsz);/* /currdir */
+            if(len < bufsz)
+                len += path_append(buf + len, PA_SEP_HARD, filename, bufsz - len);
+        } /* buf => /currdir/filename */
+        else /* In / */
+        {
+            len = path_append(buf, root, filename, bufsz);
+        }  /* buf => /filename */
+    }
 #endif
 
     if (len > bufsz)

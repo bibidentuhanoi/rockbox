@@ -51,7 +51,7 @@ enum {
 #ifdef HAVE_RECORDING
     GO_TO_RECSCREEN,
 #endif
-#if CONFIG_TUNER
+#if CONFIG_TUNER || defined(HAVE_IRADIO)
     GO_TO_FM,
 #endif
     GO_TO_RECENTBMARKS,

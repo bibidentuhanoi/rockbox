@@ -26,8 +26,19 @@
 **/
 
 #include "common.h"
+#ifdef ESP32
+#include "structs.h"
+#include "cfft.h"
+#include "../lib/fft.h"
+#else
 #include "../lib/fft.h"
 #include "../lib/mdct_lookup.h"
+#endif
+
+/* ESP32: dct4_kernel uses ff_fft_calc_c (which has its own PIC-safe dispatch)
+   instead of faad2's cfft. The cfft path needs cfft_tab_32 which doesn't exist
+   in upstream libfaad. ff_fft_calc_c already works on ESP32 via a switch-based
+   dispatch that avoids the broken function-pointer-table GOT relocation. */
 
 
 #ifdef SBR_DEC
@@ -1542,9 +1553,16 @@ void dct4_kernel(real_t *real, real_t *imag)
 {
     uint32_t i, idx, tabidx;
     real_t x_re, x_im, tmp;
-    FFTComplex xc[32]; /* used for calling codeclib's fft implementation */
+#ifndef ESP32
+    FFTComplex xc[32];
+#else
+    /* ESP32: use FFTComplex + ff_fft_calc_c instead of complex_t + cfftf.
+       cfftf needs cfft_tab_32 which doesn't exist upstream; ff_fft_calc_c
+       already has PIC-safe dispatch on ESP32 (switch, not function pointer table). */
+    FFTComplex xc[32];
+#endif
 
-    /* Step 2: modulate and pre-rotate for codeclib's fft implementation */
+    /* Step 2: modulate and pre-rotate for fft implementation */
     // 3*32=96 multiplications
     // 3*32=96 additions
     for (i = 0, tabidx = 0; i < 32; i++)
@@ -1553,7 +1571,7 @@ void dct4_kernel(real_t *real, real_t *imag)
         BUTTERFLY_DCT4(xc[idx].im, xc[idx].re, real[i], imag[i], dct4_pre_tab, tabidx);
     }
 
-    /* Step 3: FFT (codeclib's implementation) */
+    /* Step 3: FFT */
     ff_fft_calc_c(5, xc);
 
     /* Step 4: modulate + reordering */

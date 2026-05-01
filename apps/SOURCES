@@ -156,6 +156,9 @@ radio/radio_skin.c
 radio/radioart.c
 #endif
 #endif
+#ifdef HAVE_IRADIO
+radio/iradio.c
+#endif
 
 #if INPUT_SRC_CAPS != 0
 audio_path.c
@@ -302,6 +305,8 @@ keymaps/keymap-surfansf28.c
 keymaps/keymap-rgnano.c
 #elif CONFIG_KEYPAD == CTRU_PAD
 keymaps/keymap-ctru.c
+#elif CONFIG_KEYPAD == ESP32_PAD
+keymaps/keymap-esp32.c
 #elif CONFIG_KEYPAD == HIBY_R3PROII_PAD
 keymaps/keymap-hibyr3proii.c
 #endif

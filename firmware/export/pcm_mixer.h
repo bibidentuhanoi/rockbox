@@ -23,8 +23,6 @@
 #define PCM_MIXER_H
 
 #include <sys/types.h>
-#include "pcm.h"
-#include "pcm_sink.h"
 
 /** Simple config **/
 
@@ -98,13 +96,8 @@ enum channel_status
 /** Public interfaces **/
 
 /* Start playback on a channel */
-struct mixer_play_cbs {
-    void (*get_more)(const void **start, size_t *size);
-    void (*sampr_changed)(uint32_t sampr);
-};
-
 void mixer_channel_play_data(enum pcm_mixer_channel channel,
-                             const struct mixer_play_cbs* cbs,
+                             pcm_play_callback_type get_more,
                              const void *start, size_t size);
 
 /* Pause or resume a channel (when started) */
@@ -112,9 +105,6 @@ void mixer_channel_play_pause(enum pcm_mixer_channel channel, bool play);
 
 /* Stop playback on a channel */
 void mixer_channel_stop(enum pcm_mixer_channel channel);
-
-/* Switch playback sink */
-bool mixer_switch_sink(enum pcm_sink_ids sink);
 
 /* Set channel's amplitude factor */
 void mixer_channel_set_amplitude(enum pcm_mixer_channel channel,
@@ -138,15 +128,12 @@ void mixer_channel_calculate_peaks(enum pcm_mixer_channel channel,
 void mixer_adjust_channel_address(enum pcm_mixer_channel channel,
                                   off_t offset);
 
-struct mixer_buffer_cbs {
-    /* Called for each buffer, not each mixer chunk */
-    void (*next_buffer)(const void *start, size_t size);
-    void (*sampr_changed)(uint32_t sampr);
-};
+/* Set a hook that is called upon getting a new source buffer for a channel
+   NOTE: Called for each buffer, not each mixer chunk */
+typedef void (*chan_buffer_hook_fn_type)(const void *start, size_t size);
 
-/* Set a hook that is called upon getting a new source buffer for a channel */
 void mixer_channel_set_buffer_hook(enum pcm_mixer_channel channel,
-                                   const struct mixer_buffer_cbs* cbs);
+                                   chan_buffer_hook_fn_type fn);
 
 /* Stop ALL channels and PCM and reset state */
 void mixer_reset(void);

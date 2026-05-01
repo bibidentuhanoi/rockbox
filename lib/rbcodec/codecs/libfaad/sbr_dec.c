@@ -55,8 +55,9 @@ typedef struct {
 #endif
 } XLR_t;
 
-/* static variables */
-static XLR_t *p_XLR = NULL;
+/* static variables — uninitialized so they land in .bss (ELF loader
+   .data pointer bug: initialized pointers in .data don't persist). */
+static XLR_t *p_XLR;
 #if defined(FAAD_STATIC_ALLOC) || defined(HAVE_FAAD_XLR_IN_IRAM)
 static XLR_t s_XLR IBSS_ATTR_FAAD_XLR MEM_ALIGN_ATTR;
 #endif

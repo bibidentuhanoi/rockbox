@@ -29,7 +29,6 @@
 #include "pcmbuf.h"
 #include "dsp-util.h"
 #include "playback.h"
-#include "dsp_core.h"
 #include "codec_thread.h"
 
 /* Define LOGF_ENABLE to enable logf output in this file */
@@ -69,22 +68,23 @@
    chunks */
 
 /* Return data level in 1/4-second increments */
-static inline unsigned int data_level(int quarter_secs)
-{
-    return mixer_get_frequency() * quarter_secs;
-}
+#define DATA_LEVEL(quarter_secs) (pcmbuf_sampr * (quarter_secs))
 
 /* Number of bytes played per second */
-#define BYTERATE            (mixer_get_frequency() * PCMBUF_SAMPLE_SIZE)
+#define BYTERATE            (pcmbuf_sampr * PCMBUF_SAMPLE_SIZE)
 
 #if MEMORYSIZE > 2
 /* Keep watermark high for large memory target - at least (2s) */
 #define PCMBUF_WATERMARK    (BYTERATE * 2)
 #define MIN_BUFFER_SIZE     (BYTERATE * 3)
 /* 1 seconds of buffer is low data */
-#define LOW_DATA            data_level(4)
+#define LOW_DATA            DATA_LEVEL(4)
+#else
+#ifdef ESP32
+#define PCMBUF_WATERMARK    (BYTERATE / 2)  /* 0.5s — smoother track transitions */
 #else
 #define PCMBUF_WATERMARK    (BYTERATE / 4)  /* 0.25 seconds */
+#endif
 #define MIN_BUFFER_SIZE     (BYTERATE * 1)
 /* under watermark is low data */
 #define LOW_DATA            pcmbuf_watermark
@@ -112,6 +112,7 @@ static size_t pcmbuf_size;
 static struct chunkdesc *pcmbuf_descriptors;
 static unsigned int pcmbuf_desc_count;
 static unsigned int position_key = 1;
+static unsigned int pcmbuf_sampr = 0;
 
 static size_t chunk_ridx;
 static size_t chunk_widx;
@@ -484,7 +485,7 @@ void * pcmbuf_request_buffer(int *count)
         if (low_latency_mode)
         {
             /* 1/4s latency. */
-            if (remaining > data_level(1))
+            if (remaining > DATA_LEVEL(1))
                 return NULL;
         }
 
@@ -726,7 +727,7 @@ void pcmbuf_start_track_change(enum pcm_track_change_type type)
     else if (crossfade_setting != CROSSFADE_ENABLE_OFF)
     {
         if (crossfade_status == CROSSFADE_INACTIVE &&
-            pcmbuf_unplayed_bytes() >= data_level(2) &&
+            pcmbuf_unplayed_bytes() >= DATA_LEVEL(2) &&
             !low_latency_mode)
         {
             switch (crossfade_setting)
@@ -839,26 +840,29 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
     }
 }
 
-static void pcmbuf_sampr_callback(uint32_t sampr)
-{
-    struct dsp_config* dsp = dsp_get_config(CODEC_IDX_AUDIO);
-    dsp_configure(dsp, DSP_SET_OUT_FREQUENCY, sampr);
-}
-
 /* Force playback */
 void pcmbuf_play_start(void)
 {
     logf("pcmbuf_play_start");
+    int ch_status = mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK);
+    bool has_data = (chunk_widx != chunk_ridx);
 
-    if (mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK) == CHANNEL_STOPPED &&
-        chunk_widx != chunk_ridx)
+    if (ch_status == CHANNEL_STOPPED && has_data)
     {
         current_desc = NULL;
-        static const struct mixer_play_cbs cbs = {
-            .get_more = pcmbuf_pcm_callback,
-            .sampr_changed = pcmbuf_sampr_callback,
-        };
-        mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &cbs, NULL, 0);
+#ifdef ESP32
+        /* Force PCM restart on track transition.
+           On ESP32, the FreeRTOS playback task drives mixer callbacks without
+           holding pcm_mutex, so a newly activated channel may not be picked up
+           by already-running callbacks. Stopping PCM first ensures
+           mixer_start_pcm does a full fresh start (double-buffer init +
+           pcm_play_dma_start). Safe because the playback channel is
+           CHANNEL_STOPPED — only idle silence frames are interrupted. */
+        if (pcm_is_playing())
+            pcm_play_stop();
+#endif
+        mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, pcmbuf_pcm_callback,
+                                NULL, 0);
     }
 }
 
@@ -1153,7 +1157,7 @@ static void crossfade_start(void)
     size_t unplayed = pcmbuf_unplayed_bytes();
 
     /* Reject crossfade if less than .5s of data */
-    if (unplayed < data_level(2))
+    if (unplayed < DATA_LEVEL(2))
     {
         logf("crossfade rejected");
         crossfade_cancel();
@@ -1448,4 +1452,14 @@ bool pcmbuf_is_lowdata(void)
 void pcmbuf_set_low_latency(bool state)
 {
     low_latency_mode = state;
+}
+
+void pcmbuf_update_frequency(void)
+{
+    pcmbuf_sampr = mixer_get_frequency();
+}
+
+unsigned int pcmbuf_get_frequency(void)
+{
+    return pcmbuf_sampr;
 }

@@ -321,14 +321,18 @@ void gui_statusbar_draw(struct gui_statusbar * bar, bool force_redraw, struct vi
             gui_statusbar_icon_lock_remote(display);
 #endif
 #if CONFIG_RTC
+#ifndef ESP32
         gui_statusbar_time(display, bar->time);
         bar->last_tm_min = bar->time->tm_min;
+#endif
 #endif /* CONFIG_RTC */
 #if (CONFIG_LED == LED_VIRTUAL) || defined(HAVE_REMOTE_LCD)
+#ifndef ESP32
         if(!display->has_disk_led && bar->info.led)
         {
             gui_statusbar_led(display);
         }
+#endif
 #endif
         display->setfont(FONT_UI);
         display->update_viewport();

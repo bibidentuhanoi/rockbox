@@ -22,7 +22,6 @@
 #define __TCC780X_H__
 
 #define CACHEALIGN_BITS (5)
-#define CACHEALIGN_SIZE (32)
 
 #define TTB_SIZE      (0x4000)
 /* must be 16Kb (0x4000) aligned */

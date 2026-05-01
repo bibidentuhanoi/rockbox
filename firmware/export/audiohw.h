@@ -225,6 +225,8 @@ struct sound_settings_info
 #include "es9218.h"
 #elif (CONFIG_PLATFORM & PLATFORM_ANDROID)
 #include "android_codec.h"
+#elif (CONFIG_PLATFORM & PLATFORM_ESP32)
+#include "esp32_codec.h"
 #elif ((CONFIG_PLATFORM & (PLATFORM_SDL | PLATFORM_CTRU)) | defined(RG_NANO))
 #include "sdl_codec.h"
 #elif defined(DX50)
@@ -674,7 +676,6 @@ enum AUDIOHW_CHANNEL_CONFIG
     SOUND_CHAN_MONO_LEFT,
     SOUND_CHAN_MONO_RIGHT,
     SOUND_CHAN_KARAOKE,
-    SOUND_CHAN_SWAP,
     SOUND_CHAN_NUM_MODES,
 };
 

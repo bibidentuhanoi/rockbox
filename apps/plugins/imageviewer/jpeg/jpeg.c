@@ -150,8 +150,7 @@ static int load_image(char *filename, struct image_info *info,
         return PLUGIN_OUTOFMEM;
     }
 
-    if(!iv->settings->hide_info &&
-       !iv->running_slideshow)
+    if(!iv->running_slideshow)
     {
         rb->lcd_puts(0, 0, rb->strrchr(filename,'/')+1);
         rb->lcd_putsf(0, 1, "loading %d bytes", filesize);
@@ -161,8 +160,7 @@ static int load_image(char *filename, struct image_info *info,
     rb->read(fd, buf_jpeg, filesize);
     rb->close(fd);
 
-    if(!iv->settings->hide_info &&
-       !iv->running_slideshow)
+    if(!iv->running_slideshow)
     {
         rb->lcd_puts(0, 2, "decoding markers");
         rb->lcd_update();
@@ -192,8 +190,7 @@ static int load_image(char *filename, struct image_info *info,
         default_huff_tbl(p_jpg); /* use default */
     build_lut(p_jpg); /* derive Huffman and other lookup-tables */
 
-    if(!iv->settings->hide_info &&
-       !iv->running_slideshow)
+    if(!iv->running_slideshow)
     {
         rb->lcd_putsf(0, 2, "image %dx%d", p_jpg->x_size, p_jpg->y_size);
         rb->lcd_update();
@@ -266,8 +263,7 @@ static int get_image(struct image_info *info, int frame, int ds)
     buf_images += size;
     buf_images_size -= size;
 
-    if(!iv->settings->hide_info &&
-       !iv->running_slideshow)
+    if(!iv->running_slideshow)
     {
         rb->lcd_putsf(0, 3, "decoding %d*%d", info->width, info->height);
         rb->lcd_update();
@@ -292,8 +288,7 @@ static int get_image(struct image_info *info, int frame, int ds)
     }
     time = *rb->current_tick - time;
 
-    if(!iv->settings->hide_info &&
-       !iv->running_slideshow)
+    if(!iv->running_slideshow)
     {
         rb->snprintf(print, sizeof(print), " %ld.%02ld sec ", time/HZ, time%HZ);
         rb->lcd_getstringsize(print, &w, &h); /* centered in progress bar */

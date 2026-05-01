@@ -430,8 +430,8 @@ uint8_t max_tns_sfb(const uint8_t sr_index, const uint8_t object_type,
 uint32_t get_sample_rate(const uint8_t sr_index);
 int8_t can_decode_ot(const uint8_t object_type);
 
-#ifndef FAAD_STATIC_ALLOC
-/* Those should not be defined or used anymore */
+#if !defined(FAAD_STATIC_ALLOC) || defined(ESP32)
+/* faad_malloc/faad_free needed by mdct.c and cfft.c for init/cleanup */
 #define faad_malloc(A) malloc(A)
 #define faad_free(A)   free(A)
 #endif

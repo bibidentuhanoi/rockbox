@@ -96,15 +96,21 @@ enum codec_status codec_run(void)
     conf->outputFormat = FAAD_FMT_16BIT; /* irrelevant, we don't convert */
     NeAACDecSetConfiguration(decoder, conf);    
     
+#ifdef ESP32
+    /* ESP32 port: default to LC when extradata is missing (e.g. ffmpeg RM muxer) */
+    decoder->config.defObjectType = (rmctx.extradata_size > 0 && rmctx.codec_extradata[0] != 0)
+        ? rmctx.codec_extradata[0] : 2 /* LC */;
+#else
     decoder->config.defObjectType = rmctx.codec_extradata[0];
-    decoder->config.defSampleRate = rmctx.sample_rate;      
-    err = NeAACDecInit(decoder, NULL, 0, &s, &c);    
-   
+#endif
+    decoder->config.defSampleRate = rmctx.sample_rate;
+    err = NeAACDecInit(decoder, NULL, 0, &s, &c);
+
     if (err) {
         DEBUGF("FAAD: DecInit: %d, %d\n", err, decoder->object_type);
         return CODEC_ERROR;
     }
-    
+
     /* check for a mid-track resume and force a seek time accordingly */
     if (resume_offset) {
         resume_offset -= MIN(resume_offset, rmctx.data_offset + DATA_HEADER_SIZE);
@@ -198,7 +204,12 @@ enum codec_status codec_run(void)
         }
         
         playback_on = 1;
+#ifdef ESP32
+        /* ESP32: skip length check when duration is 0 (broken RM muxers) */
+        if (ci->id3->length > 0 && pkt.timestamp >= ci->id3->length)
+#else
         if (pkt.timestamp >= ci->id3->length)
+#endif
             break;
 
         /* Decode one block - returned samples will be host-endian */                           

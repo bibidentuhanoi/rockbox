@@ -25,8 +25,12 @@ target/hosted/rtc.c
 
 #if (CONFIG_PLATFORM & PLATFORM_ANDROID) == 0 && \
     !defined(DX50) && !defined(DX90) && \
-    (defined(DEBUG) || defined(SIMULATOR) || defined(CTRU)) /* sim should define DEBUG instead */
+    (defined(DEBUG) || defined(SIMULATOR) || defined(CTRU) || defined(ESP32)) /* sim should define DEBUG instead */
+#ifdef ESP32
+target/hosted/esp32/debug-esp32.c
+#else
 target/hosted/debug-hosted.c
+#endif
 #endif
 
 #endif
@@ -108,9 +112,25 @@ target/hosted/filesystem-unix.c
 #endif /* APPLICATION */
 #endif /* HAVE_SDL */
 
-#if defined(APPLICATION) && !defined(CTRU)
+#if defined(APPLICATION) && !defined(CTRU) && !defined(ESP32)
 target/hosted/filesystem-app.c
 #endif /* APPLICATION */
+
+#ifdef ESP32
+target/hosted/esp32/filesystem-esp32.c
+target/hosted/esp32/lcd-bitmap.c
+target/hosted/esp32/button-esp32.c
+target/hosted/esp32/thread-esp32.c
+target/hosted/esp32/kernel-esp32.c
+target/hosted/esp32/system-esp32.c
+target/hosted/esp32/timer-esp32.c
+target/hosted/esp32/backlight-esp32.c
+target/hosted/esp32/powermgmt-esp32.c
+target/hosted/esp32/lc-esp32.c
+target/hosted/esp32/lib/sys_thread.c
+target/hosted/esp32/lib/sys_timer.c
+target/hosted/esp32/pcm-esp32.c
+#endif /* ESP32 */
 
 #if (defined(SAMSUNG_YPR0) || defined(SAMSUNG_YPR1)) && !defined(SIMULATOR)
 target/hosted/kernel-unix.c
@@ -527,11 +547,12 @@ drivers/rds.c
 #endif /* HAVE_RDS_CAP */
 #endif /* PLATFORM_NATIVE */
 #endif /* CONFIG_TUNER */
-#endif /* !BOOTLOADER */
+#endif /* BOOTLOADER */
 
 /* Sound */
-#ifndef BOOTLOADER
 sound.c
+
+#ifndef BOOTLOADER
 pcm_sampr.c
 pcm.c
 pcm_mixer.c
@@ -543,7 +564,7 @@ enc_base.c
 #endif /* HAVE_RECORDING */
 
 drivers/audio/audiohw-swcodec.c
-#endif /* !BOOTLOADER */
+#endif /* BOOTLOADER */
 
 /* Audio codec */
 #if !defined(BOOTLOADER)
@@ -609,6 +630,8 @@ drivers/audio/as3514.c
 drivers/audio/wm8978.c
 #elif defined(CTRU)
 drivers/audio/ctru.c
+#elif defined(ESP32)
+drivers/audio/esp32.c
 #endif
 #endif /* (CONFIG_PLATFORM & PLATFORM_NATIVE) */
 #endif /* !defined(BOOTLOADER) */
@@ -696,6 +719,8 @@ target/arm/ipod/powermgmt-ipod-pcf.c
 
 #if CONFIG_I2C == I2C_PP5024 || CONFIG_I2C == I2C_PP5020 || CONFIG_I2C == I2C_PP5002
 target/arm/pp/i2c-pp.c
+#elif CONFIG_I2C == I2C_PNX0101
+target/arm/pnx0101/i2c-pnx0101.c
 #elif CONFIG_I2C == I2C_TCC780X
 target/arm/i2c-telechips.c
 #elif CONFIG_I2C == I2C_S3C2440
@@ -708,6 +733,12 @@ target/arm/s5l8702/i2c-s5l8702.c
 target/arm/rk27xx/i2c-rk27xx.c
 #elif CONFIG_I2C == I2C_IMX233
 target/arm/imx233/i2c-imx233.c
+#endif
+
+#if CONFIG_CPU == PNX0101
+target/arm/pnx0101/kernel-pnx0101.c
+target/arm/pnx0101/system-pnx0101.c
+target/arm/pnx0101/timer-pnx0101.c
 #endif
 
 #if CONFIG_CPU == IMX233
@@ -862,6 +893,8 @@ target/arm/pp/audio-pp.c
 #endif /* SANSA_E200 */
 target/arm/pp/crt0-pp.S
 #endif
+#elif CONFIG_CPU == PNX0101
+target/arm/pnx0101/crt0-pnx0101.S
 #elif CONFIG_CPU==DM320
 target/arm/tms320dm320/crt0.S
 #elif CONFIG_CPU==S3C2440
@@ -1925,11 +1958,13 @@ target/arm/rk27xx/ihifi2/audio-ihifi800.c
 #if CONFIG_CPU == STM32H743
 target/arm/stm32/crt0-stm32h7.S
 target/arm/stm32/vectors-stm32h7.S
+target/arm/stm32/adc-stm32h7.c
 #ifndef BOOTLOADER
 target/arm/stm32/debug-stm32h7.c
 #endif
 target/arm/stm32/gpio-stm32h7.c
 target/arm/stm32/i2c-stm32h7.c
+target/arm/stm32/pcm-stm32h7.c
 target/arm/stm32/sdmmc-stm32h7.c
 target/arm/stm32/spi-stm32h7.c
 target/arm/stm32/system-stm32h7.c
@@ -1940,16 +1975,12 @@ target/arm/stm32/usb-stm32h7.c
 #endif
 
 #if defined(ECHO_R1)
-target/arm/stm32/echoplayer/adc-echoplayer.c
 target/arm/stm32/echoplayer/audiohw-echoplayer.c
 target/arm/stm32/echoplayer/backlight-echoplayer.c
 target/arm/stm32/echoplayer/button-echoplayer.c
 target/arm/stm32/echoplayer/clock-echoplayer.c
 target/arm/stm32/echoplayer/i2c-echoplayer.c
 target/arm/stm32/echoplayer/lcd-echoplayer.c
-#ifndef BOOTLOADER
-target/arm/stm32/echoplayer/pcm-echoplayer.c
-#endif
 target/arm/stm32/echoplayer/power-echoplayer.c
 target/arm/stm32/echoplayer/sdmmc-echoplayer.c
 target/arm/stm32/echoplayer/system-echoplayer.c
@@ -2087,7 +2118,7 @@ kernel/semaphore.c
 #endif
 #ifdef HAVE_SDL_THREADS
 target/hosted/sdl/thread-sdl.c
-#elif !defined(CTRU)
+#elif !defined(CTRU) && !defined(ESP32)
 kernel/thread.c
 #endif
 kernel/thread-common.c

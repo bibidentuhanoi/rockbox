@@ -11689,7 +11689,7 @@
 </phrase>
 <phrase>
   id: LANG_USB_MODE
-  desc: in Settings -> General -> System -> USB
+  desc: in Settings -> General -> System -> USB Mode
   user: core
   <source>
     *: "USB Mode"
@@ -11782,10 +11782,10 @@
     *: "One per playlist"
   </source>
   <dest>
-    *: "Jedna na plejlist"
+    *: "Jedna na playlist"
   </dest>
   <voice>
-    *: "Jedna na plejlist"
+    *: "Jedna na playlist"
   </voice>
 </phrase>
 <phrase>
@@ -12466,10 +12466,10 @@
     *: "Playlist elapsed:"
   </source>
   <dest>
-    *: "Plejlist uplynulo:"
+    *: "Playlist prehraté:"
   </dest>
   <voice>
-    *: "Plejlist uplynulo"
+    *: "Playlist prehraté"
   </voice>
 </phrase>
 <phrase>
@@ -12682,7 +12682,7 @@
     *: ""
   </dest>
   <voice>
-    *: "Označené"
+    *: "označené"
   </voice>
 </phrase>
 <phrase>
@@ -12985,10 +12985,10 @@
     *: "Track elapsed:"
   </source>
   <dest>
-    *: "Stopa uplynulo:"
+    *: "Stopa prehraté:"
   </dest>
   <voice>
-    *: "Stopa uplynulo"
+    *: "Stopa prehraté"
   </voice>
 </phrase>
 <phrase>
@@ -13429,7 +13429,7 @@
     *: "Storage (Done / Remaining):"
   </source>
   <dest>
-    *: "Miesto: (dokončené/zostáva)"
+    *: "Miesto: (dokončené / zostaáva)"
   </dest>
   <voice>
     *: "Miesto"
@@ -13825,10 +13825,10 @@
     *: "Average bitrate:"
   </source>
   <dest>
-    *: "Priemerná bitová rýchlosť:"
+    *: "Priemerný bitrate:"
   </dest>
   <voice>
-    *: "Priemerná bitová rýchlosť"
+    *: "Priemerný bitrate"
   </voice>
 </phrase>
 <phrase>
@@ -13867,10 +13867,10 @@
     *: "Average track size:"
   </source>
   <dest>
-    *: "Priemerná veľkosť stopy:"
+    *: "Priemerná dĺžka stopy:"
   </dest>
   <voice>
-    *: "Priemerná veľkosť stopy"
+    *: "Priemerná dĺžka stopy"
   </voice>
 </phrase>
 <phrase>
@@ -14326,11 +14326,11 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_HIDE_INFO
-  desc: Hide Information
+  id: LANG_HIDE_ALBUM_TITLE_NEW
+  desc: in the pictureflow settings
   user: core
   <source>
-    *: "Hide Information"
+    *: "Hide information"
   </source>
   <dest>
     *: "Skryť info"
@@ -14530,10 +14530,10 @@
     *: "Elapsed"
   </source>
   <dest>
-    *: "Uplynulo"
+    *: "Trvanie"
   </dest>
   <voice>
-    *: "Uplynulo"
+    *: "Trvanie"
   </voice>
 </phrase>
 <phrase>
@@ -15195,13 +15195,13 @@
 </phrase>
 <phrase>
   id: LANG_VOICED_DATE_FORMAT
-  desc: format string for how dates will be read back. Y == 4-digit year (grouped), y == 4-digit year (numeric), A == month name, m == numeric month, d == numeric day. For example, for 2021-01-05, "AdY" will be voiced as "January 5 twenty twenty-one" and "dmy" will be voiced as "5 1 two thousand twenty one
+  desc: format string for how dates will be read back. Y == 4-digit year, A == month name, m == numeric month, d == numeric day. For example, "AdY" will read "January 21 2021"
   user: core
   <source>
     *: "dAY"
   </source>
   <dest>
-    *: "dAy"
+    *: "dAY"
   </dest>
   <voice>
     *: ""
@@ -15470,10 +15470,10 @@
     *: "Keep Current Track When Replacing Playlist"
   </source>
   <dest>
-    *: "Ponechať aktuálnu stopu pri nahradení plejlistu"
+    *: "Ponechať aktuálnu stopu pri nahradení playlistu"
   </dest>
   <voice>
-    *: "Ponechať aktuálnu stopu pri nahradení plejlistu"
+    *: "Ponechať aktuálnu stopu pri nahradení playlistu"
   </voice>
 </phrase>
 <phrase>
@@ -15930,16 +15930,16 @@
 </phrase>
 <phrase>
   id: LANG_DEFAULT_BROWSER
-  desc: deprecated
+  desc: in Settings
   user: core
   <source>
-    *: ""
+    *: "Default Browser"
   </source>
   <dest>
-    *: ""
+    *: "Predvolený prehliadač"
   </dest>
   <voice>
-    *: ""
+    *: "Predvolený prehliadač"
   </voice>
 </phrase>
 <phrase>
@@ -16972,131 +16972,5 @@
   </dest>
   <voice>
     *: "Vždy si zapamätať posledný priečinok"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_USB_MENU
-  desc: in settings_menu
-  user: core
-  <source>
-    *: "USB"
-  </source>
-  <dest>
-    *: "~USB"
-  </dest>
-  <voice>
-    *: "~U S B"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_FILE_NOT_FOUND
-  desc: When file does not exist
-  user: core
-  <source>
-    *: "File not found"
-  </source>
-  <dest>
-    *: "Súbor nebol nájdený"
-  </dest>
-  <voice>
-    *: "Súbor nebol nájdený"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_SHOW_IN_FILES
-  desc: Reveal item in File Browser
-  user: core
-  <source>
-    *: "Show in Files"
-  </source>
-  <dest>
-    *: "Ukázať v Súboroch"
-  </dest>
-  <voice>
-    *: "Ukázať v Súboroch"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_CHANNEL_SWAP
-  desc: in sound_settings
-  user: core
-  <source>
-    *: "Swap Left & Right"
-  </source>
-  <dest>
-    *: "Zameniť ľavý a pravý"
-  </dest>
-  <voice>
-    *: "Zameniť ľavý a pravý"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_COUNTDOWN_TIMER_SET
-  desc: countdown_timer plugin - header shown on the setup screen where the user enters the countdown duration
-  user: core
-  <source>
-    *: "SET TIMER"
-  </source>
-  <dest>
-    *: "NASTAVIŤ ČASOVAČ"
-  </dest>
-  <voice>
-    *: "Nastaviť časovač"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_COUNTDOWN_TIMER_RUNNING
-  desc: countdown_timer plugin - status label shown while the countdown is active
-  user: core
-  <source>
-    *: "RUNNING"
-  </source>
-  <dest>
-    *: "BEŽÍ"
-  </dest>
-  <voice>
-    *: "Beží"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_COUNTDOWN_TIMER_PAUSED
-  desc: countdown_timer plugin - status label shown while the countdown is paused
-  user: core
-  <source>
-    *: "PAUSED"
-  </source>
-  <dest>
-    *: "POZASTAVENÝ"
-  </dest>
-  <voice>
-    *: "Pozastavený"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_COUNTDOWN_TIMER_OVERTIME
-  desc: countdown_timer plugin - status label shown when the countdown has passed zero and is counting up
-  user: core
-  <source>
-    *: "OVERTIME"
-  </source>
-  <dest>
-    *: "NADČAS"
-  </dest>
-  <voice>
-    *: "Nadčas"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_COUNTDOWN_TIMER_FINISHED
-  desc: countdown_timer plugin - status label shown at the moment the countdown expires
-  user: core
-  <source>
-    *: "FINISHED"
-  </source>
-  <dest>
-    *: "UKONČENÝ"
-  </dest>
-  <voice>
-    *: "Ukončený"
   </voice>
 </phrase>

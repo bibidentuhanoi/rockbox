@@ -395,24 +395,20 @@ static void start_sound(void)
 #endif
 
     /* Get the closest rate >= to what is preferred */
-    const struct pcm_sink_caps* caps = rb->pcm_current_sink_caps();
     sr_index = rb->round_value_to_list32(PREFERRED_SAMPLING_RATE,
-                        caps->samprs, caps->num_samprs, false);
+                        rb->hw_freq_sampr, HW_NUM_FREQ, false);
 
-    if (caps->samprs[sr_index] < PREFERRED_SAMPLING_RATE && sr_index > 0)
+    if (rb->hw_freq_sampr[sr_index] < PREFERRED_SAMPLING_RATE
+        && sr_index > 0)
     {
         /* Round up */
         sr_index--;
     }
 
-    wsg3_set_sampling_rate(caps->samprs[sr_index]);
+    wsg3_set_sampling_rate(rb->hw_freq_sampr[sr_index]);
 
-    static const struct mixer_play_cbs cbs = {
-        .get_more = get_more,
-    };
-    rb->mixer_set_frequency(caps->samprs[sr_index]);
-    rb->pcmbuf_fade(false, true); /* Be sure channel is audible */
-    rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &cbs, NULL, 0);
+    rb->mixer_set_frequency(rb->hw_freq_sampr[sr_index]);
+    rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, get_more, NULL, 0);
 
     sound_playing = true;
 }
@@ -425,7 +421,6 @@ static void stop_sound(void)
     if (!sound_playing)
         return;
 
-    rb->pcmbuf_fade(false, false); /* Mute channel */
     rb->mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
     rb->mixer_set_frequency(HW_SAMPR_DEFAULT);
 

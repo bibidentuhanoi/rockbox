@@ -22,12 +22,12 @@
  ****************************************************************************/
 #include "config.h"
 #include "system.h"
+#include "debug.h"
 #include "version.h"
 #include "kernel.h"
 #include "panic.h"
 #include "core_alloc.h"
 #include "sound.h"
-#include "pcm_sink.h"
 #include "codecs.h"
 #include "codec_thread.h"
 #include "voice_thread.h"
@@ -3036,6 +3036,7 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
             skip_resume_adjustments = id3_get(PLAYING_ID3)->skip_resume_adjustments;
 
             track_list_clear(TRACK_LIST_CLEAR_ALL);
+            pcmbuf_update_frequency();
         }
         else
         {
@@ -3048,6 +3049,7 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
             pcmbuf_start_track_change(TRACK_CHANGE_MANUAL);
             wipe_track_metadata(true);
         }
+        pcmbuf_update_frequency();
 
         /* Set after track finish event in case skip was in progress */
         skip_pending = TRACK_SKIP_NONE;
@@ -3069,6 +3071,7 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
 #ifndef PLATFORM_HAS_VOLUME_CHANGE
         sound_set_volume(global_status.volume);
 #endif
+        pcmbuf_update_frequency();
 
         /* Be sure channel is audible */
         pcmbuf_fade(false, true);
@@ -4233,13 +4236,29 @@ void audio_set_crossfade(int enable)
 #ifdef HAVE_PLAY_FREQ
 static unsigned long audio_guess_frequency(struct mp3entry *id3)
 {
-    const struct pcm_sink_caps* caps = pcm_sink_caps(pcm_current_sink());
-    for (size_t i = 0; i < caps->num_samprs; i += 1)
+    switch (id3->frequency)
     {
-        if (id3->frequency == caps->samprs[i])
-            return id3->frequency;
+#if HAVE_PLAY_FREQ >= 48
+    case 44100:
+        return SAMPR_44;
+    case 48000:
+        return SAMPR_48;
+#endif
+#if HAVE_PLAY_FREQ >= 96
+    case 88200:
+        return SAMPR_88;
+    case 96000:
+        return SAMPR_96;
+#endif
+#if HAVE_PLAY_FREQ >= 192
+    case 176400:
+        return SAMPR_176;
+    case 192000:
+        return SAMPR_192;
+#endif
+    default:
+        return (id3->frequency % 4000) ? SAMPR_44 : SAMPR_48;
     }
-    return (id3->frequency % 4000) ? SAMPR_44 : SAMPR_48;
 }
 
 static bool audio_auto_change_frequency(struct mp3entry *id3, bool play)
@@ -4264,16 +4283,27 @@ static bool audio_auto_change_frequency(struct mp3entry *id3, bool play)
 
 void audio_set_playback_frequency(unsigned int sample_rate_hz)
 {
+    /* sample_rate_hz == 0 is "automatic", and also a sentinel */
+#if HAVE_PLAY_FREQ >= 192
+    static const unsigned int play_sampr[] = {SAMPR_44, SAMPR_48, SAMPR_88, SAMPR_96, SAMPR_176, SAMPR_192, 0 };
+#elif HAVE_PLAY_FREQ >= 96
+    static const unsigned int play_sampr[] = {SAMPR_44, SAMPR_48, SAMPR_88, SAMPR_96, 0 };
+#elif HAVE_PLAY_FREQ >= 48
+    static const unsigned int play_sampr[] = {SAMPR_44, SAMPR_48, 0 };
+#else
+    #error "HAVE_PLAY_FREQ < 48 ??"
+#endif
+    const unsigned int *p_sampr = play_sampr;
     unsigned int sampr = 0;
 
-    const struct pcm_sink_caps* caps = pcm_sink_caps(pcm_current_sink());
-    for (size_t i = 0; i < caps->num_samprs; i += 1)
+    while (*p_sampr != 0)
     {
-        if (caps->samprs[i] == sample_rate_hz)
+        if (*p_sampr == sample_rate_hz)
         {
-            sampr = caps->samprs[i];
+            sampr = *p_sampr;
             break;
         }
+        p_sampr++;
     }
 
     if (sampr == 0)
@@ -4312,6 +4342,7 @@ void INIT_ATTR playback_init(void)
     mutex_init(&id3_mutex);
     track_list_init();
     buffering_init();
+    pcmbuf_update_frequency();
 #ifdef HAVE_CROSSFADE
     /* Set crossfade setting for next buffer init which should be about... */
     pcmbuf_request_crossfade_enable(global_settings.crossfade);

@@ -29,7 +29,6 @@
 #include "font.h"
 #include "power.h"
 #include "button.h"
-#include "button-devinput.h"
 #include "backlight-target.h"
 #include "lcd.h"
 #include "filesystem-hosted.h"
@@ -93,7 +92,6 @@ static void sig_handler(int sig, siginfo_t *siginfo, void *context)
 void power_off(void)
 {
     backlight_hw_off();
-    button_close_device();
     sync();
     system("/sbin/poweroff");
     while (1) {

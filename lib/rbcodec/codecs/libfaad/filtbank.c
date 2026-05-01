@@ -41,10 +41,60 @@
 #include "syntax.h"
 #include "kbd_win.h"
 #include "sine_win.h"
+#ifdef ESP32
+/* ESP32 uses faad2's own MDCT — Rockbox Tremor FFT breaks under PIC/ELF loading.
+   All-static allocation to avoid heap corruption between tracks. */
+#include "mdct.h"
+#include "mdct_tab.h"
+#endif
 
 
 /* static variables */
 static real_t transf_buf[2*FRAME_LEN] IBSS_ATTR MEM_ALIGN_ATTR;
+
+#ifdef ESP32
+static complex_t s_cfft_work_512[512];
+static complex_t s_cfft_work_64[64];
+
+static cfft_info s_cfft_512;
+static cfft_info s_cfft_64;
+
+static mdct_info s_mdct2048_st;
+static mdct_info s_mdct256_st;
+
+static mdct_info *s_mdct2048;
+static mdct_info *s_mdct256;
+
+static void init_cfft_static(cfft_info *cfft, uint16_t n, complex_t *work)
+{
+    cfft_info *tmp = cffti(n);
+    if (tmp) {
+        *cfft = *tmp;
+        cfft->work = work;
+        faad_free(tmp->work);
+        faad_free(tmp);
+    }
+}
+
+static void ensure_mdct_init(void)
+{
+    if (s_mdct2048 != NULL)
+        return;
+
+    init_cfft_static(&s_cfft_512, 512, s_cfft_work_512);
+    init_cfft_static(&s_cfft_64, 64, s_cfft_work_64);
+
+    s_mdct2048_st.N = 2048;
+    s_mdct2048_st.sincos = (complex_t*)mdct_tab_2048;
+    s_mdct2048_st.cfft = &s_cfft_512;
+    s_mdct2048 = &s_mdct2048_st;
+
+    s_mdct256_st.N = 256;
+    s_mdct256_st.sincos = (complex_t*)mdct_tab_256;
+    s_mdct256_st.cfft = &s_cfft_64;
+    s_mdct256 = &s_mdct256_st;
+}
+#endif /* ESP32 */
 #ifdef LTP_DEC
 static real_t windowed_buf[2*FRAME_LEN] MEM_ALIGN_ATTR = {0};
 #endif
@@ -270,7 +320,12 @@ void ifilter_bank(uint8_t window_sequence, uint8_t window_shape,
     {
     case ONLY_LONG_SEQUENCE:
         /* perform iMDCT */
+#ifdef ESP32
+        ensure_mdct_init();
+        faad_imdct(s_mdct2048, freq_in, transf_buf);
+#else
         ff_imdct_calc(11, transf_buf, freq_in);
+#endif
 
         /* add second half output of previous frame to windowed output of current frame */
         vector_fmul_add_add(time_out, transf_buf, window_long_prev, overlap,  nlong);
@@ -282,7 +337,12 @@ void ifilter_bank(uint8_t window_sequence, uint8_t window_shape,
 
     case LONG_START_SEQUENCE:
         /* perform iMDCT */
+#ifdef ESP32
+        ensure_mdct_init();
+        faad_imdct(s_mdct2048, freq_in, transf_buf);
+#else
         ff_imdct_calc(11, transf_buf, freq_in);
+#endif
 
         /* add second half output of previous frame to windowed output of current frame */
         vector_fmul_add_add(time_out, transf_buf, window_long_prev, overlap,  nlong);
@@ -301,7 +361,18 @@ void ifilter_bank(uint8_t window_sequence, uint8_t window_shape,
         /* this could be assemblerized too, but this case is extremely uncommon */   
          
         /* perform iMDCT for each short block */
-        idx0 = 0;       ff_imdct_calc(8, transf_buf            , freq_in       );
+#ifdef ESP32
+        ensure_mdct_init();
+        idx0 = 0;       faad_imdct(s_mdct256, freq_in,        transf_buf            );
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+        idx0 += nshort; faad_imdct(s_mdct256, freq_in + idx0, transf_buf + (idx0<<1));
+#else
+        idx0 = 0;       ff_imdct_calc(8, transf_buf,             freq_in       );
         idx0 += nshort; ff_imdct_calc(8, transf_buf + (idx0<<1), freq_in + idx0);
         idx0 += nshort; ff_imdct_calc(8, transf_buf + (idx0<<1), freq_in + idx0);
         idx0 += nshort; ff_imdct_calc(8, transf_buf + (idx0<<1), freq_in + idx0);
@@ -309,6 +380,7 @@ void ifilter_bank(uint8_t window_sequence, uint8_t window_shape,
         idx0 += nshort; ff_imdct_calc(8, transf_buf + (idx0<<1), freq_in + idx0);
         idx0 += nshort; ff_imdct_calc(8, transf_buf + (idx0<<1), freq_in + idx0);
         idx0 += nshort; ff_imdct_calc(8, transf_buf + (idx0<<1), freq_in + idx0);
+#endif
 
         /* Add second half output of previous frame to windowed output of current 
          * frame */
@@ -370,7 +442,12 @@ void ifilter_bank(uint8_t window_sequence, uint8_t window_shape,
 
     case LONG_STOP_SEQUENCE:
         /* perform iMDCT */
+#ifdef ESP32
+        ensure_mdct_init();
+        faad_imdct(s_mdct2048, freq_in, transf_buf);
+#else
         ff_imdct_calc(11, transf_buf, freq_in);
+#endif
 
         /* add second half output of previous frame to windowed output of current frame */
         /* construct first half window using padding with 1's and 0's */

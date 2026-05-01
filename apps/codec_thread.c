@@ -26,7 +26,6 @@
 #include "kernel.h"
 #include "codecs.h"
 #include "codec_thread.h"
-#include "pcm_mixer.h"
 #include "pcmbuf.h"
 #include "audio_thread.h"
 #include "playback.h"
@@ -38,6 +37,7 @@
 /* Define LOGF_ENABLE to enable logf output in this file */
 /*#define LOGF_ENABLE*/
 #include "logf.h"
+
 
 /* macros to enable logf for queues
    logging on SYS_TIMEOUT can be disabled */
@@ -311,6 +311,7 @@ static void * codec_request_buffer_callback(size_t *realsize, size_t reqsize)
         ptr = NULL;
 
     *realsize = copy_n;
+
     return ptr;
 }
 
@@ -519,7 +520,7 @@ static void run_codec(void)
     codec_queue_ack(Q_CODEC_RUN);
 
     trigger_cpu_boost();
-    dsp_configure(ci.dsp, DSP_SET_OUT_FREQUENCY, mixer_get_frequency());
+    dsp_configure(ci.dsp, DSP_SET_OUT_FREQUENCY, pcmbuf_get_frequency());
 
     if (!encoder)
     {

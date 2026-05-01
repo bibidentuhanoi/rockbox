@@ -1545,6 +1545,16 @@ void logf(const char *fmt, ...) ATTRIBUTE_PRINTF(1, 2)
     \param fmt
     \description
 
+const unsigned long *audio_master_sampr_list
+    \group sound
+    \return
+    \description
+
+const unsigned long *hw_freq_sampr
+    \group sound
+    \return
+    \description
+
 const unsigned long *rec_freq_sampr
     \group sound
     \conditions (defined(HAVE_RECORDING))
@@ -1607,9 +1617,9 @@ size_t mixer_channel_get_bytes_waiting(enum pcm_mixer_channel channel)
     \return
     \description
 
-void mixer_channel_play_data(enum pcm_mixer_channel channel, const struct mixer_play_cbs* cbs, const void *start, size_t size)
+void mixer_channel_play_data(enum pcm_mixer_channel channel, pcm_play_callback_type get_more, const void *start, size_t size)
     \param channel
-    \param cbs
+    \param get_more
     \param start
     \param size
     \description
@@ -1624,7 +1634,7 @@ void mixer_channel_set_amplitude(enum pcm_mixer_channel channel, unsigned int am
     \param amplitude
     \description
 
-void mixer_channel_set_buffer_hook(enum pcm_mixer_channel channel, const struct mixer_buffer_cbs* cbs)
+void mixer_channel_set_buffer_hook(enum pcm_mixer_channel channel, chan_buffer_hook_fn_type fn)
     \param channel
     \param fn
     \description
@@ -1742,6 +1752,10 @@ void pcmbuf_fade(bool fade, bool in)
 
 void pcmbuf_set_low_latency(bool state)
     \param state
+    \description
+
+void pcm_apply_settings(void)
+    \group sound
     \description
 
 void pcm_calculate_rec_peaks(int *left, int *right)

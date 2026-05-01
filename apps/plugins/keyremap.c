@@ -582,7 +582,7 @@ static void keyremap_save_user_keys(bool notify)
         rb->splashf(HZ *2, "Saved %s", buf);
 }
 
-static int keyremap_export_current(char *filenamebuf, size_t bufsz, const char *filename)
+static int keyremap_export_current(char *filenamebuf, size_t bufsz)
 {
     filenamebuf[bufsz - 1] = '\0';
     int i, j;
@@ -596,7 +596,7 @@ static int keyremap_export_current(char *filenamebuf, size_t bufsz, const char *
         logf("%s: Not enough entries", __func__);
         return 0;
     }
-    int fd = rb->open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    int fd = rb->open(filenamebuf, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 
     if (fd < 0)
         return -1;
@@ -657,8 +657,7 @@ fail:
 static void keyremap_export_user_keys(void)
 {
     const bool notify = true;
-    static char fnamebuf[MAX_PATH];
-    static char buf[MAX_PATH];
+    char buf[MAX_PATH];
     int i = 0;
     do
     {
@@ -671,13 +670,14 @@ static void keyremap_export_user_keys(void)
         return;
     }
 
-    if (keyremap_export_current(fnamebuf, sizeof(fnamebuf), buf) <= 0)
+    if (keyremap_export_current(buf, sizeof(buf)) <= 0)
     {
         if(notify)
             rb->splash(HZ *2, "Error Saving");
     }
     else if (notify)
     {
+        rb->snprintf(buf, sizeof(buf), "%s/%s%d%s", "", KMFUSER, i, ".txt");
         rb->splashf(HZ *2, "Saved %s", buf);
     }
 }
@@ -1085,24 +1085,6 @@ fail:
     return 0;
 }
 
-static int context_encode_flags(int context)
-{
-    int enctx = (context & 0xFF) % LAST_ACTION_PLACEHOLDER; /* strip flags */
-    /* takes a context | flag and converts it to context x flag */
-    for (int i = ARRAYLEN(context_flags) - 1; i > 0; i--) /* don't check idx 0*/
-    {
-        /* convert context | flag to context x flag */
-        if ((context & context_flags[i].flag) ==  context_flags[i].flag)
-        {
-            logf("found ctx flag %s", context_flags[i].name);
-            enctx &= ~context_flags[i].flag;
-            enctx += i * LAST_CONTEXT_PLACEHOLDER;
-        }
-    }
-    logf("%s in: %x out: %x\n", __func__, context, enctx);
-    return enctx;
-}
-
 static int keyremap_load_file(const char *filename)
 {
     logf("keyremap: load %s", filename);
@@ -1136,8 +1118,7 @@ static int keyremap_load_file(const char *filename)
             }
             if ((entry.action_code & CONTEXT_REMAPPED) == CONTEXT_REMAPPED)
             {
-                int context = context_encode_flags(entry.action_code & ~CONTEXT_REMAPPED);
-#if 0
+                int context = (entry.action_code & ~CONTEXT_REMAPPED);
                 for (int i = ARRAYLEN(context_flags) - 1; i > 0; i--) /* don't check idx 0*/
                 {
                     /* convert context | flag to context x flag */
@@ -1148,7 +1129,6 @@ static int keyremap_load_file(const char *filename)
                         context += i * LAST_CONTEXT_PLACEHOLDER;
                     }
                 }
-#endif
                 int offset = entry.button_code;
                 int entries = entry.pre_button_code;
                 if (offset == 0 || entries <= 0)
@@ -1366,10 +1346,7 @@ static const char *test_keymap_name_cb(int selected_item, void* data,
     if (keytest.context >= 0)
     {
         if (selected_item == 0)
-        {
-            int ctx = context_encode_flags(keytest.context);
-            rb->snprintf(buf, buf_len, "< %s >", ctx_name_and_flag(ctx));
-        }
+            rb->snprintf(buf, buf_len, "< %s >", ctx_name_and_flag(keytest.context));
         else if (selected_item == 1)
         {
             if (keytest.countdown >= 10)

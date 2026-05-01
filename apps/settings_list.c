@@ -31,7 +31,6 @@
 #include "button.h"
 #include "backlight.h"
 #include "sound.h"
-#include "pcm_sink.h"
 #include "settings.h"
 #include "rbpaths.h"
 #include "settings_list.h"
@@ -759,8 +758,7 @@ static int32_t getlang_freq_unit_0_is_auto(int value, int unit)
 
 static void playback_frequency_callback(int sample_rate_hz)
 {
-    if (pcm_current_sink() == PCM_SINK_BUILTIN)
-        audio_set_playback_frequency(sample_rate_hz);
+    audio_set_playback_frequency(sample_rate_hz);
 }
 #endif /* HAVE_PLAY_FREQ */
 
@@ -956,11 +954,10 @@ const struct settings_list settings[] = {
     SYSTEM_STATUS(0, resume_crc32,   -1,     "CRC"),
     SYSTEM_STATUS(0, resume_elapsed, -1,     "ELA"),
     SYSTEM_STATUS(0, resume_offset,  -1,     "OFF"),
-    SYSTEM_STATUS(0, resume_modified, 0,     "PLM"),
+    SYSTEM_STATUS(0, resume_modified, false, "PLM"),
     SYSTEM_STATUS(0, runtime,         0,     "CRT"),
     SYSTEM_STATUS(0, topruntime,      0,     "TRT"),
     SYSTEM_STATUS(0, last_screen,    -1,     "PVS"),
-    SYSTEM_STATUS(0, last_browser,    0,     "BRS"),
 /* sound settings */
     CUSTOM_SETTING(F_NO_WRAP, volume_limit, LANG_VOLUME_LIMIT,
                   NULL, "volume limit",
@@ -1060,12 +1057,11 @@ const struct settings_list settings[] = {
 /* 3-d enhancement effect */
     CHOICE_SETTING(0, channel_config, LANG_CHANNEL_CONFIGURATION,
                    0,"channels",
-                   "stereo,mono,custom,mono left,mono right,karaoke,swap",
-                   sound_set_channels, 7,
+                   "stereo,mono,custom,mono left,mono right,karaoke",
+                   sound_set_channels, 6,
                    ID2P(LANG_CHANNEL_STEREO), ID2P(LANG_CHANNEL_MONO),
                    ID2P(LANG_CHANNEL_CUSTOM), ID2P(LANG_CHANNEL_LEFT),
-                   ID2P(LANG_CHANNEL_RIGHT), ID2P(LANG_CHANNEL_KARAOKE),
-                   ID2P(LANG_CHANNEL_SWAP)),
+                   ID2P(LANG_CHANNEL_RIGHT), ID2P(LANG_CHANNEL_KARAOKE)),
     SOUND_SETTING(0, stereo_width, LANG_STEREO_WIDTH,
                   "stereo_width", SOUND_STEREO_WIDTH),
 #ifdef AUDIOHW_HAVE_DEPTH_3D
@@ -1990,6 +1986,25 @@ const struct settings_list settings[] = {
                       ID2P(LANG_SET_BOOL_NO),
                       ID2P(LANG_SET_BOOL_YES),
                       ID2P(LANG_IN_SUBMENU)),
+
+    CHOICE_SETTING(0, browser_default, LANG_DEFAULT_BROWSER, 0,
+                      "default browser",
+#ifdef HAVE_TAGCACHE
+                      "files,database,playlists",
+#else
+                      "files,playlists",
+#endif
+                      NULL,
+#ifdef HAVE_TAGCACHE
+                      3
+#else
+                      2
+#endif
+                      ,ID2P(LANG_DIR_BROWSER),
+#ifdef HAVE_TAGCACHE
+                      ID2P(LANG_TAGCACHE),
+#endif
+                      ID2P(LANG_PLAYLISTS)),
 
 #ifdef HAVE_BACKLIGHT
     CHOICE_SETTING(0, backlight_on_button_hold,

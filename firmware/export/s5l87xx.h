@@ -22,7 +22,7 @@
 #ifndef __S5L87XX_H__
 #define __S5L87XX_H__
 
-#ifndef __ASSEMBLER__
+#ifndef ASM
 #include <stdint.h>
 #endif
 
@@ -31,11 +31,9 @@
 #define VOID_PTR_PTR_T       void* volatile*
 
 #if CONFIG_CPU==S5L8700 || CONFIG_CPU==S5L8701
-#define CACHEALIGN_BITS (4)  /* 2^4 = 16 bytes */
-#define CACHEALIGN_SIZE (16)
+#define CACHEALIGN_BITS (4) /* 2^4 = 16 bytes */
 #elif CONFIG_CPU==S5L8702 || CONFIG_CPU==S5L8720
-#define CACHEALIGN_BITS (5)  /* 2^5 = 32 bytes */
-#define CACHEALIGN_SIZE (32)
+#define CACHEALIGN_BITS (5) /* 2^5 = 32 bytes */
 #endif
 
 #if CONFIG_CPU==S5L8702 || CONFIG_CPU==S5L8720

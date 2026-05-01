@@ -32,7 +32,9 @@
 extern "C" {
 #endif
 
-//#include "cfft.h"
+#ifdef ESP32
+#include "cfft.h"
+#endif
 #ifdef SBR_DEC
 #include "sbr_dec.h"
 #endif
@@ -56,7 +58,9 @@ typedef struct {
 
 typedef struct {
     uint16_t N;
-    //cfft_info *cfft;
+#ifdef ESP32
+    cfft_info *cfft;
+#endif
     complex_t *sincos;
 #ifdef PROFILE
     int64_t cycles;

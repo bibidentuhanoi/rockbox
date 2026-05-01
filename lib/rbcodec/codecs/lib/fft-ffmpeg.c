@@ -285,7 +285,14 @@ static void pass(FFTComplex *z_arg, unsigned int STEP_arg, unsigned int n_arg)
 
     register const FFTSample *w = sincos_lookup0+STEP;
     /* wre = *(wim+1) .  ordering is sin,cos */
+#ifdef ESP32
+    /* ESP32 ELF loader ignores RELA addend for R_XTENSA_GLOB_DAT.
+       Compute w_end from w (already resolved via GOT) to avoid a
+       separate GOT entry with non-zero addend for sincos_lookup0+1024. */
+    register const FFTSample *w_end = w + (1024 - STEP);
+#else
     register const FFTSample *w_end = sincos_lookup0+1024;
+#endif
 
     /* first two are special (well, first one is special, but we need to do pairs) */
     z = TRANSFORM_ZERO(z,n);
@@ -413,7 +420,24 @@ static void (*fft_dispatch[])(FFTComplex*) = {
 
 void ff_fft_calc_c(int nbits, FFTComplex *z)
 {
+#ifdef ESP32
+    /* Static function pointer table fails PIC relocation under ELF loader — use direct dispatch */
+    switch (nbits) {
+    case 2:  fft4_dispatch(z); break;
+    case 3:  fft8_dispatch(z); break;
+    case 4:  fft16(z); break;
+    case 5:  fft32(z); break;
+    case 6:  fft64(z); break;
+    case 7:  fft128(z); break;
+    case 8:  fft256(z); break;
+    case 9:  fft512(z); break;
+    case 10: fft1024(z); break;
+    case 11: fft2048(z); break;
+    case 12: fft4096(z); break;
+    }
+#else
     fft_dispatch[nbits-2](z);
+#endif
 }
 
 #if 0

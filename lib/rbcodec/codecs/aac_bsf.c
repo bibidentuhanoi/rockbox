@@ -26,6 +26,7 @@
 #include "libfaad/structs.h"
 #include "libfaad/decoder.h"
 
+
 CODEC_HEADER
 
 /* The maximum buffer size handled by faad. 12 bytes are required by libfaad
@@ -35,6 +36,8 @@ CODEC_HEADER
 
 static void update_playing_time(void)
 {
+    if (ci->id3->bitrate == 0)
+        return;
     ci->set_elapsed((unsigned long)((ci->id3->offset - ci->id3->first_frame_offset) * 8LL / ci->id3->bitrate));
 }
 
@@ -94,6 +97,10 @@ enum codec_status codec_run(void)
         LOGF("FAAD: DecInit: %ld, %d\n", (long int)bread, decoder->object_type);
         return CODEC_ERROR;
     }
+
+    if (s && ci->id3->frequency != s)
+        ci->configure(DSP_SET_FREQUENCY, s);
+
     ci->advance_buffer(bread);
 
     if (ci->id3->offset > ci->id3->first_frame_offset) {
@@ -119,8 +126,8 @@ enum codec_status codec_run(void)
 
         /* Deal with any pending seek requests */
         if (action == CODEC_ACTION_SEEK_TIME) {
-            /* Seek to the desired time position. */
-            ci->seek_buffer(ci->id3->first_frame_offset + (uint32_t)((uint64_t)param * ci->id3->bitrate / 8));
+            if (ci->id3->bitrate)
+                ci->seek_buffer(ci->id3->first_frame_offset + (uint32_t)((uint64_t)param * ci->id3->bitrate / 8));
             ci->set_elapsed((unsigned long)param);
             NeAACDecPostSeekReset(decoder, 0);
             ci->seek_complete();
@@ -137,7 +144,20 @@ enum codec_status codec_run(void)
         /* Decode one block - returned samples will be host-endian */
         if (NeAACDecDecode(decoder, &frame_info, buffer, n) == NULL || frame_info.error > 0) {
             LOGF("FAAD: decode error '%s'\n", NeAACDecGetErrorMessage(frame_info.error));
-            return CODEC_ERROR;
+            if (frame_info.bytesconsumed > 0) {
+                ci->advance_buffer(frame_info.bytesconsumed);
+            } else {
+                /* Resync: scan for next ADTS header (0xFFF) */
+                size_t skip;
+                for (skip = 1; skip + 1 < n; skip++) {
+                    if (buffer[skip] == 0xFF && (buffer[skip + 1] & 0xF0) == 0xF0)
+                        break;
+                }
+                ci->advance_buffer(skip);
+                NeAACDecPostSeekReset(decoder, 0);
+            }
+            ci->yield();
+            continue;
         }
 
         /* Advance codec buffer (no need to call set_offset because of this) */

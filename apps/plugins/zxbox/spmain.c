@@ -47,8 +47,6 @@
 
 #include "zxbox_keyb.h"
 
-#include "tapefile.h"
-
 int endofsingle IBSS_ATTR;
 
 int sp_nosync IBSS_ATTR = 0;
@@ -135,7 +133,7 @@ int spcf_read_conf_file(const char *filename)
 
 /* set keys */
 static void set_keys(void){
-    char c[8] = {0};
+    char c;
     int selected=0;
     int result;
     int menu_quit=0;
@@ -153,31 +151,31 @@ static void set_keys(void){
             case 0:
                 if (!zx_kbd_input((char*) &c))
                 {
-                    settings.keymap[0]=c[0];
+                    settings.keymap[0]=c;
                 }
                 break;
             case 1:
                 if (!zx_kbd_input((char*) &c))
                 {
-                    settings.keymap[1]=c[0];
+                    settings.keymap[1]=c;
                 }
                 break;
             case 2:
                 if (!zx_kbd_input((char*) &c))
                 {
-                    settings.keymap[2]=c[0];
+                    settings.keymap[2]=c;
                 }
                 break;
             case 3:
                 if (!zx_kbd_input((char*) &c))
                 {
-                    settings.keymap[3]=c[0];
+                    settings.keymap[3]=c;
                 }
                 break;
             case 4:
                 if (!zx_kbd_input((char*) &c))
                 {
-                    settings.keymap[4]=c[0];
+                    settings.keymap[4]=c;
                 }
                 break;
             default:
@@ -322,7 +320,7 @@ static bool zxbox_menu(void)
     int result;
     int menu_quit=0;
     int exit=0;
-    char c[8] = {0};
+    char c;
     MENUITEM_STRINGLIST(menu, "ZXBox", NULL,
                         "VKeyboard", "Play/Pause Tape",
                         "Save quick snapshot", "Load quick snapshot",
@@ -340,7 +338,7 @@ static bool zxbox_menu(void)
             case 0:
                 if (!zx_kbd_input((char*) &c))
                 {
-                    press_key(c[0]);
+                    press_key(c);
                 }
                 clear_kbd=1;
                 menu_quit=1;
@@ -521,5 +519,4 @@ void start_spectemu(const void *parameter)
   init_spect_key();
 
   run_singlemode();
-  close_tapefile(); /* Bugfix leak file handles */
 }

@@ -34,7 +34,7 @@ int _start(void) {return 0;}
 #ifdef CTRU
 /* dummy undefined symbols */
 void __aeabi_unwind_cpp_pr0(void) {}
-struct _reent * _EXFUN(__getreent, (void)) { return NULL; }
+struct _reent * _EXFUN(__getreent, (void)) {}
 #endif
 
 enum codec_status codec_start(enum codec_entry_call_reason reason)
@@ -76,14 +76,5 @@ enum codec_status codec_start(enum codec_entry_call_reason reason)
 void __attribute__((naked)) __div0(void)
 {
     asm volatile("bx %0" : : "r"(ci->__div0));
-}
-#endif
-
-#if defined(USE_STACK_PROTECTOR)
-const uint32_t __stack_chk_guard = 0x2BADC0DE;
-
-void __stack_chk_fail(void)
-{
-    ci->panicf("codec smashed stack");
 }
 #endif

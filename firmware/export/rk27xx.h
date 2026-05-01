@@ -1,7 +1,3 @@
-/* See https://rockchip.fr/Rockchip%20RK27xx%20TRM%20V1.1.pdf */
-#define CACHEALIGN_BITS 5
-#define CACHEALIGN_SIZE 32
-
 /* ARM part only for now */
 #define AHB_SRAM 0x00000000
 

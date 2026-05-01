@@ -25,6 +25,7 @@
 #include "lib/pluginlib_exit.h"
 #include "fixedpoint.h"
 
+
 /* About time resolution:
     1000 means 1 ms resolution. It should get better with higher values
     in theory, but in practice, too small timer intervals increase the
@@ -787,6 +788,7 @@ static bool beating = false; /* A beat is/was playing and count needs to increas
 static int display_state    = 0; /* Current display state code. */
 static bool display_trigger = false; /* Draw display on next occasion */
 
+static bool sound_active = false;
 static bool sound_paused = true;
 
 /* global static buffer for messages in any situation */
@@ -1167,7 +1169,7 @@ static void timer_callback(void)
     if(minitick >= period)
     {
         minitick = 0;
-        if(!sound_paused && !tap_count)
+        if(!sound_active && !sound_paused && !tap_count)
         {
             sound_trigger = true;
             rb->reset_poweroff_timer();
@@ -1212,7 +1214,6 @@ static void cleanup(void)
     if(fd >= 0) rb->close(fd);
 
     metronome_pause();
-    rb->pcmbuf_fade(false, false); /* Mute channel */
     rb->mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
     tweak_volume(0);
     rb->led(0);
@@ -1556,12 +1557,10 @@ enum plugin_status plugin_start(const void* file)
 
     prepare_buffers();
 #if INPUT_SRC_CAPS != 0
-    /* Select playback */
     rb->audio_set_input_source(AUDIO_SRC_PLAYBACK, SRCF_PLAYBACK);
     rb->audio_set_output_source(AUDIO_SRC_PLAYBACK);
 #endif
     rb->mixer_set_frequency(SAMPR_44);
-    rb->pcmbuf_fade(false, true); /* Be sure channel is audible */
 
     if(file)
     {
@@ -1612,7 +1611,6 @@ enum plugin_status plugin_start(const void* file)
     tweak_volume(part->volume);
     calc_period();
     draw_display();
-
     /* main loop */
     while(true)
     {

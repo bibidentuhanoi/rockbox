@@ -12162,7 +12162,7 @@
 </phrase>
 <phrase>
   id: LANG_USB_MODE
-  desc: in Settings -> General -> System -> USB
+  desc: in Settings -> General -> System -> USB Mode
   user: core
   <source>
     *: "USB Mode"
@@ -14712,11 +14712,11 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_HIDE_INFO
-  desc: Hide Information
+  id: LANG_HIDE_ALBUM_TITLE_NEW
+  desc: in the pictureflow settings
   user: core
   <source>
-    *: "Hide Information"
+    *: "Hide information"
   </source>
   <dest>
     *: "Ascunde informațiile"
@@ -15312,13 +15312,13 @@
 </phrase>
 <phrase>
   id: LANG_VOICED_DATE_FORMAT
-  desc: format string for how dates will be read back. Y == 4-digit year (grouped), y == 4-digit year (numeric), A == month name, m == numeric month, d == numeric day. For example, for 2021-01-05, "AdY" will be voiced as "January 5 twenty twenty-one" and "dmy" will be voiced as "5 1 two thousand twenty one
+  desc: format string for how dates will be read back. Y == 4-digit year, A == month name, m == numeric month, d == numeric day. For example, "AdY" will read "January 21 2021"
   user: core
   <source>
     *: "dAY"
   </source>
   <dest>
-    *: "~dAY"
+    *: "dAY"
   </dest>
   <voice>
     *: ""
@@ -16963,33 +16963,5 @@
   </dest>
   <voice>
     *: "Anunțare stare"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_KEEP_DIRECTORY
-  desc: file browser setting
-  user: core
-  <source>
-    *: "Always remember last folder"
-  </source>
-  <dest>
-    *: "Ține minte mereu ultimul dosar"
-  </dest>
-  <voice>
-    *: "Ține minte mereu ultimul dosar"
-  </voice>
-</phrase>
-<phrase>
-  id: LANG_USB_MENU
-  desc: in settings_menu
-  user: core
-  <source>
-    *: "USB"
-  </source>
-  <dest>
-    *: "~USB"
-  </dest>
-  <voice>
-    *: "u se be"
   </voice>
 </phrase>

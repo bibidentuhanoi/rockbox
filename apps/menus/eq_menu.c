@@ -442,10 +442,13 @@ enum eq_type {
     HIGH_SHELF
 };
 
+/* Size of just the slider/srollbar */
+#define SCROLLBAR_SIZE 6
+
 /* Draw the UI for a whole EQ band */
 static int draw_eq_slider(struct screen * screen, int x, int y,
     int width, int cutoff, int q, int gain, bool selected,
-    enum eq_slider_mode mode, int band, int scrollbar_size)
+    enum eq_slider_mode mode, int band)
 {
     char buf[26];
     int steps, min_item, max_item;
@@ -531,14 +534,14 @@ static int draw_eq_slider(struct screen * screen, int x, int y,
     screen->putsxy(x1, y1, buf);
 
     /* Draw selection box */
-    total_height = 3 + h + 1 + scrollbar_size + 3;
+    total_height = 3 + h + 1 + SCROLLBAR_SIZE + 3;
     screen->set_drawmode(DRMODE_SOLID);
     if (selected) {
         screen->drawrect(x, y, width, total_height);
     }
 
     /* Draw horizontal slider. Reuse scrollbar for this */
-    gui_scrollbar_draw(screen, x + 3, y1 + h + 1, width - 6, scrollbar_size,
+    gui_scrollbar_draw(screen, x + 3, y1 + h + 1, width - 6, SCROLLBAR_SIZE,
                        steps, min_item, max_item, HORIZONTAL);
 
     return total_height;
@@ -547,7 +550,7 @@ static int draw_eq_slider(struct screen * screen, int x, int y,
 /* Draw's all the EQ sliders. Returns the total height of the sliders drawn */
 static void draw_eq_sliders(struct screen * screen, int x, int y,
                             int nb_eq_sliders, int start_item,
-                            int current_band, enum eq_slider_mode mode, int scrollbar_size)
+                            int current_band, enum eq_slider_mode mode)
 {
     int height = y;
 
@@ -565,14 +568,14 @@ static void draw_eq_sliders(struct screen * screen, int x, int y,
         if (i >= start_item) {
             height += draw_eq_slider(screen, x, height, screen->lcdwidth - x - 1,
                                      cutoff, q, gain, i == current_band, mode,
-                                     i, scrollbar_size);
+                                     i);
             /* add a margin */
             height++;
         }
     }
 
     if (nb_eq_sliders != EQ_NUM_BANDS)
-        gui_scrollbar_draw(screen, 0, y, scrollbar_size - 1,
+        gui_scrollbar_draw(screen, 0, y, SCROLLBAR_SIZE - 1,
                            screen->lcdheight - y, EQ_NUM_BANDS,
                            start_item, start_item + nb_eq_sliders,
                            VERTICAL);
@@ -590,23 +593,20 @@ int eq_menu_graphical(void)
     int current_band, x, y, step, fast_step, min, max;
     enum eq_slider_mode mode;
     int h, height, start_item, nb_eq_sliders[NB_SCREENS];
-    int scrollbar_size[NB_SCREENS];
-
     FOR_NB_SCREENS(i)
         viewportmanager_theme_enable(i, false, NULL);
 
+
     FOR_NB_SCREENS(i) {
         screens[i].set_viewport(NULL);
+        screens[i].setfont(FONT_SYSFIXED);
         screens[i].clear_display();
 
         /* Figure out how many sliders can be drawn on the screen */
         h = screens[i].getcharheight();
-        scrollbar_size[i] = h * 3 / 4;
-        if (scrollbar_size[i] < 6)
-            scrollbar_size[i] = 6;
 
         /* Total height includes margins (1), text, slider, and line selector (1) */
-        height = 3 + h + 1 + scrollbar_size[i] + 3;
+        height = 3 + h + 1 + SCROLLBAR_SIZE + 3;
         nb_eq_sliders[i] = screens[i].lcdheight / height;
 
         /* Make sure the "Edit Mode" text fits too */
@@ -675,14 +675,14 @@ int eq_menu_graphical(void)
                 } else {
                     start_item = current_band - 1;
                 }
-                x = scrollbar_size[i];
+                x = SCROLLBAR_SIZE;
             } else {
                 x = 1;
                 start_item = 0;
             }
             /* Draw equalizer band details */
             draw_eq_sliders(&screens[i], x, y, nb_eq_sliders[i], start_item,
-                            current_band, mode, scrollbar_size[i]);
+                            current_band, mode);
 
             screens[i].update();
         }
@@ -761,6 +761,7 @@ int eq_menu_graphical(void)
     /* Reset screen settings */
     FOR_NB_SCREENS(i)
     {
+        screens[i].setfont(FONT_UI);
         screens[i].clear_display();
         screens[i].set_viewport(NULL);
         viewportmanager_theme_undo(i, false);

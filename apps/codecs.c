@@ -50,10 +50,10 @@
 #include "splash.h"
 #include "general.h"
 #include "rbpaths.h"
-#include "panic.h"
 
 #define LOGF_ENABLE
 #include "logf.h"
+
 
 #if (CONFIG_PLATFORM & PLATFORM_SDL)
 #define PREFIX(_x_) sim_ ## _x_
@@ -63,7 +63,12 @@
 
 #if (CONFIG_PLATFORM & PLATFORM_HOSTED)
 /* For PLATFORM_HOSTED this buffer must be define here. */
+#ifdef ESP32
+#include "esp_heap_caps.h"
+static unsigned char *codecbuf;
+#else
 static unsigned char codecbuf[CODEC_SIZE];
+#endif
 #else
 /* For PLATFORM_NATIVE this buffer is defined in *.lds files. */
 extern unsigned char codecbuf[];
@@ -122,7 +127,7 @@ struct codec_api ci = {
     memmove,
     memcmp,
     memchr,
-#if defined(DEBUG) || defined(SIMULATOR)
+#if defined(DEBUG) || defined(SIMULATOR) || defined(ESP32)
     debugf,
 #endif
 #ifdef ROCKBOX_HAS_LOGF
@@ -151,7 +156,6 @@ struct codec_api ci = {
 
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
-    panicf,
 
 };
 
@@ -161,7 +165,7 @@ void codec_get_full_path(char *path, const char *codec_root_fn)
             CODEC_EXTENSION, codec_root_fn);
 }
 
-/* Returns pointer to and size of free codec RAM. Aligns to MEM_ALIGN_SIZE. */
+/* Returns pointer to and size of free codec RAM. Aligns to CACHEALIGN_SIZE. */
 void *codec_get_buffer_callback(size_t *size)
 {
     void *buf = &codecbuf[codec_size];
@@ -171,7 +175,7 @@ void *codec_get_buffer_callback(size_t *size)
         return NULL;
 
     *size = s;
-    ALIGN_BUFFER(buf, *size, MEM_ALIGN_SIZE);
+    ALIGN_BUFFER(buf, *size, CACHEALIGN_SIZE);
 
     return buf;
 }
@@ -224,12 +228,17 @@ static int codec_load_ram(struct codec_api *api)
     *(c_hdr->api) = api;
 
     logf("Codec: calling entrypoint");
-    return c_hdr->entry_point(CODEC_LOAD);
+    int ep_status = c_hdr->entry_point(CODEC_LOAD);
+    return ep_status;
 }
 
 #if defined(HAVE_CODEC_BUFFERING)
 int codec_load_buf(int hid, struct codec_api *api)
 {
+#ifdef ESP32
+    if (!codecbuf)
+        codecbuf = heap_caps_malloc(CODEC_SIZE, MALLOC_CAP_SPIRAM);
+#endif
     int rc = bufread(hid, CODEC_SIZE, codecbuf);
 
     if (rc < 0) {
@@ -250,6 +259,10 @@ int codec_load_buf(int hid, struct codec_api *api)
 
 int codec_load_file(const char *plugin, struct codec_api *api)
 {
+#ifdef ESP32
+    if (!codecbuf)
+        codecbuf = heap_caps_malloc(CODEC_SIZE, MALLOC_CAP_SPIRAM);
+#endif
     char path[MAX_PATH];
 
     codec_get_full_path(path, plugin);
@@ -272,7 +285,8 @@ int codec_run_proc(void)
     }
 
     logf("Codec: entering run state");
-    return c_hdr->run_proc();
+    int rp_status = c_hdr->run_proc();
+    return rp_status;
 }
 
 int codec_close(void)

@@ -176,8 +176,7 @@ static int load_image(char *filename, struct image_info *info,
         return PLUGIN_OUTOFMEM;
     }
 
-    if (!iv->settings->hide_info &&
-        !iv->running_slideshow)
+    if (!iv->running_slideshow)
     {
         rb->lcd_puts(0, 0, rb->strrchr(filename,'/')+1);
         rb->lcd_putsf(0, 1, "loading %dx%d%s",
@@ -207,8 +206,7 @@ static int load_image(char *filename, struct image_info *info,
         return PLUGIN_ERROR;
     }
 
-    if (!iv->settings->hide_info &&
-        !iv->running_slideshow)
+    if (!iv->running_slideshow)
     {
         rb->snprintf(print, sizeof(print), " %ld.%02ld sec ", time/HZ, time%HZ);
         rb->lcd_getstringsize(print, &w, &h); /* centered in progress bar */
@@ -227,8 +225,7 @@ static int load_image(char *filename, struct image_info *info,
     buf_images = buf_root = buf + size;
     buf_images_size = root_size = *buf_size - size;
 
-    if (!iv->settings->hide_info &&
-        !iv->running_slideshow)
+    if (!iv->running_slideshow)
     {
         rb->lcd_putsf(0, 2, "image %dx%d", bmp.width, bmp.height);
         rb->lcd_update();

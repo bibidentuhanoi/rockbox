@@ -199,6 +199,7 @@ void usb_close(void);
 /* acknowledge usb connection, typically with SYS_USB_CONNECTED_ACK */
 void usb_acknowledge(long id, intptr_t seqnum);
 /* block the current thread until SYS_USB_DISCONNECTED has been broadcast */
+struct event_queue; /* forward declaration for platforms that include usb.h before kernel.h */
 void usb_wait_for_disconnect(struct event_queue *q);
 /* same as usb_wait_for_disconnect() but with a timeout, returns 1 on timeout */
 int usb_wait_for_disconnect_w_tmo(struct event_queue *q, int ticks);

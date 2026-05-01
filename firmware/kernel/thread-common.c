@@ -189,7 +189,11 @@ unsigned int thread_self(void)
  *       a thread is suspended before it runs again.
  *---------------------------------------------------------------------------
  */
+#ifdef ESP32
+unsigned __wrap_sleep(unsigned ticks)
+#else
 unsigned sleep(unsigned ticks)
+#endif
 {
     /* In certain situations, certain bootloaders in particular, a normal
      * threading call is inappropriate. */
@@ -201,6 +205,14 @@ unsigned sleep(unsigned ticks)
     switch_thread();
     return 0;
 }
+
+#ifdef ESP32
+#undef sleep
+__attribute__((weak)) unsigned sleep(unsigned ticks)
+{
+    return __wrap_sleep(ticks);
+}
+#endif
 
 /*---------------------------------------------------------------------------
  * Elects another thread to run or, if no other thread may be made ready to
@@ -231,7 +243,7 @@ void format_thread_name(char *buf, size_t bufsize,
     snprintf(buf, bufsize, fmt, name, thread->id);
 }
 
-#if !defined(HAVE_SDL_THREADS) && !defined(CTRU)
+#ifndef HAVE_SDL_THREADS
 /*---------------------------------------------------------------------------
  * Returns the maximum percentage of the stack ever used during runtime.
  *---------------------------------------------------------------------------
@@ -252,7 +264,7 @@ static unsigned int stack_usage(uintptr_t *stackptr, size_t stack_size)
 
     return usage;
 }
-#endif /* !defined(HAVE_SDL_THREADS) && !defined(CTRU) */
+#endif /* HAVE_SDL_THREADS */
 
 #if NUM_CORES > 1
 int core_get_debug_info(unsigned int core, struct core_debug_info *infop)
@@ -304,7 +316,7 @@ int thread_get_debug_info(unsigned int thread_id,
 #ifdef HAVE_SCHEDULER_BOOSTCTRL
         cpu_boost = thread->cpu_boost;
 #endif
-#if !defined(HAVE_SDL_THREADS) && !defined(CTRU)
+#if !defined(HAVE_SDL_THREADS) && !defined(CTRU) && !defined(ESP32)
         infop->stack_usage = stack_usage(thread->stack, thread->stack_size);
 
         size_t stack_used_current =

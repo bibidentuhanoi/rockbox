@@ -346,7 +346,11 @@ bool check_rockboxdir(void)
 void tree_init(void)
 {
     check_rockboxdir();
+#ifdef TREE_ROOT
+    strcpy(tc.currdir, TREE_ROOT);
+#else
     strcpy(tc.currdir, "/");
+#endif
 }
 
 struct tree_context* tree_get_context(void)
@@ -413,9 +417,6 @@ static int update_dir(void)
     const bool id3db = false;
 #endif
 
-    /* Ensure that list is initialized before update_dir returns */
-    gui_synclist_init(list, &tree_get_filename, &tc, false, 1, NULL);
-
 #ifdef HAVE_TAGCACHE
     /* Checks for changes */
     if (id3db) {
@@ -463,6 +464,8 @@ static int update_dir(void)
             splash(HZ, ID2P(LANG_SHOWDIR_BUFFER_FULL));
         }
     }
+
+    gui_synclist_init(list, &tree_get_filename, &tc, false, 1, NULL);
 
 #ifdef HAVE_TAGCACHE
     if (id3db)
@@ -566,7 +569,7 @@ void resume_directory(const char *dir)
 
 /* Returns the current working directory and also writes cwd to buf if
    non-NULL.  In case of error, returns NULL. */
-#ifdef CTRU
+#if defined(CTRU) || defined(ESP32)
 char *__wrap_getcwd(char *buf, getcwd_size_t size)
 #else
 char *getcwd(char *buf, getcwd_size_t size)
@@ -974,10 +977,6 @@ static int dirbrowse(void)
                 {
                     case ONPLAY_MAINMENU:
                         return exit_to_new_screen(GO_TO_ROOT);
-                        break;
-
-                    case ONPLAY_REVEAL_FILE:
-                        return exit_to_new_screen(GO_TO_FILEBROWSER);
                         break;
 
                     case ONPLAY_OK:

@@ -112,14 +112,12 @@ static void open_snd(void)
     rb->audio_set_output_source(AUDIO_SRC_PLAYBACK);
 #endif
     rb->mixer_set_frequency(SAMPR_44);
-    rb->pcmbuf_fade(false, true); /* Be sure channel is audible */
 }
 
 static void close_snd(int normal)
 {
     (void)normal;
     sound_avail = 0;
-    rb->pcmbuf_fade(false, false); /* Mute channel */
     rb->mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
 }
 
@@ -214,10 +212,7 @@ static void write_buf(void){
                     = my_buf[j+10] = my_buf[j+11] \
                     = (((byte)sp_sound_buf[i])<<8) >> settings.volume;
 
-    static const struct mixer_play_cbs cbs = {
-        .get_more = get_more,
-    };
-    rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &cbs, (unsigned char*)(my_buf),TMNUM*4*3*2);
+    rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, get_more, (unsigned char*)(my_buf),TMNUM*4*3*2);
 
 #if 0
     /* can use to save and later analyze what we produce */

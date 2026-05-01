@@ -27,8 +27,7 @@
 #include "regs/stm32h743/rcc.h"
 #include "regs/stm32h743/syscfg.h"
 
-#define PLL1Q_FREQ 240000000
-#define PLL3R_FREQ 6000000
+#define PLL1Q_FREQ 48000000
 
 /* Flag to use VOS0 */
 #define STM32H743_USE_VOS0      (CPU_FREQ > 400000000)
@@ -45,21 +44,20 @@ INIT_ATTR static void init_pll(void)
     /* For simplicity, PLL parameters are hardcoded */
     _Static_assert(STM32_HSE_FREQ == 24000000,
                    "HSE frequency not correct");
-    _Static_assert(LCD_DOTCLOCK_FREQ <= PLL3R_FREQ,
-                   "PLL3R too slow for LCD");
-    _Static_assert(PLL1Q_FREQ == 240000000,
+    _Static_assert(LCD_DOTCLOCK_FREQ == 6199200,
+                   "PLL3 parameters not correct for dot clock");
+    _Static_assert(PLL1Q_FREQ == 48000000,
                    "PLL1Q parameters not correct");
 
     /*
      * Use HSE/4 input for PLL1
-     * Use HSE/12 input for PLL3
-     * PLL2 reserved for audio; configured in target PCM code
+     * Use HSE/16 input for PLL3
      */
     reg_writef(RCC_PLLCKSELR,
                PLLSRC_V(HSE),
                DIVM1(4),
                DIVM2(0),
-               DIVM3(12));
+               DIVM3(16));
 
     /* Enable PLL1P, PLL1Q, PLL3R */
     reg_writef(RCC_PLLCFGR,
@@ -82,14 +80,17 @@ INIT_ATTR static void init_pll(void)
     reg_writef(RCC_PLL1DIVR,
                DIVN(80 - 1), /* 6 * 80 = 480 MHz  */
                DIVP(1 - 1),  /* 480 / 1 = 480 MHz */
-               DIVQ(2 - 1),  /* 480 / 2 = 240 MHz  */
+               DIVQ(10 - 1), /* 480 / 10 = 48 MHz  */
                DIVR(1 - 1));
 
+    reg_writef(RCC_PLL3FRACR, FRACN(1468));
     reg_writef(RCC_PLL3DIVR,
-               DIVN(90 - 1),  /* 2 * 90 = 180 MHz */
+               DIVN(161 - 1), /* approx 241.768 MHz */
                DIVP(1 - 1),
                DIVQ(1 - 1),
-               DIVR(30 - 1)); /* 180 / 30 = 6 MHz */
+               DIVR(39 - 1)); /* approx 6.1992 MHz */
+
+    reg_writef(RCC_PLLCFGR, PLL3FRACEN(1));
 
     reg_writef(RCC_CR, PLL1ON(1), PLL3ON(1));
     while (!reg_readf(RCC_CR, PLL1RDY));
@@ -163,9 +164,8 @@ INIT_ATTR static void init_lse(void)
 INIT_ATTR static void init_periph_clock(void)
 {
     reg_writef(RCC_D1CCIPR, SDMMCSEL_V(PLL1Q));
-    reg_writef(RCC_D2CCIP1R, SAI1SEL_V(PLL2P), SPI45SEL_V(HSE));
+    reg_writef(RCC_D2CCIP1R, SPI45SEL_V(HSE));
     reg_writef(RCC_D2CCIP2R, I2C123SEL_V(HSI));
-    reg_writef(RCC_D3CCIPR, ADCSEL_V(PLL3R));
 
     /* Enable AXI SRAM in sleep mode to allow DMA'ing out of it */
     reg_writef(RCC_AHB3LPENR, AXISRAMEN(1));
@@ -190,7 +190,7 @@ const struct stm32_clock sdmmc1_ker_clock = {
 };
 
 const struct stm32_clock ltdc_ker_clock = {
-    .frequency = PLL3R_FREQ,
+    .frequency = LCD_DOTCLOCK_FREQ,
     .en_reg = ITA_RCC_APB3ENR,
     .en_bit = BM_RCC_APB3ENR_LTDCEN,
     .lpen_reg = ITA_RCC_APB3LPENR,

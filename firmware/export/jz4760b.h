@@ -37,10 +37,7 @@
 #ifndef __JZ4760B_H__
 #define __JZ4760B_H__
 
-#define CACHEALIGN_BITS (5)
-#define CACHEALIGN_SIZE (32)
-
-#if defined(__ASSEMBLER__)
+#if defined(__ASSEMBLY__) || defined(__LANGUAGE_ASSEMBLY)
         #ifndef __MIPS_ASSEMBLER
                 #define __MIPS_ASSEMBLER
         #endif

@@ -839,7 +839,7 @@ static void wakeup_thread_release(struct thread_entry *thread)
 
 #endif /* HAVE_PRIORITY_SCHEDULING */
 
-
+#ifndef ESP32
 /*---------------------------------------------------------------------------
  * Explicitly wakeup a thread on a blocking queue. Only effects threads of
  * STATE_BLOCKED and STATE_BLOCKED_W_TMO.
@@ -1585,3 +1585,4 @@ void INIT_ATTR init_threads(void)
     }
 #endif /* NUM_CORES */
 }
+#endif /* !ESP32 */

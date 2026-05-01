@@ -50,6 +50,7 @@
 #define YUV2RGB_VERSION     VERSION_ARMV5TE_WST
 
 
+#define ASM
 #include "config.h"
 #include "cpu.h"
 

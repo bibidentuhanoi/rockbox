@@ -96,8 +96,10 @@ ifndef APP_TYPE
   endif
 endif
 
-ifeq (,$(findstring checkwps,$(APP_TYPE)))
-  include $(ROOTDIR)/lib/fixedpoint/fixedpoint.make
+ifeq (,$(findstring bootloader,$(APPSDIR)))
+  ifeq (,$(findstring checkwps,$(APP_TYPE)))
+    include $(ROOTDIR)/lib/fixedpoint/fixedpoint.make
+  endif
 endif
 
 ifneq (,$(findstring bootloader,$(APPSDIR)))
@@ -232,8 +234,7 @@ clean::
 		$(LINKRAM) $(LINKROM) rockbox.elf rockbox.map rockbox.bin \
 		make.dep rombox.elf rombox.map rombox.bin romstart.txt \
 		$(BINARY) $(FLASHFILE) uisimulator bootloader flash $(BOOTLINK) \
-		rockbox.apk lang_enum.h rbversion.h fontbundle.h 3ds rockbox.3dsx \
-		rockbox.bnr rockbox.cia rockbox.icn rockbox.smdh
+		rockbox.apk lang_enum.h rbversion.h fontbundle.h
 
 #### linking the binaries: ####
 
@@ -259,11 +260,11 @@ LINKROM := $(BUILDDIR)/rom.link
 
 $(LINKRAM): $(RAMLDS) $(CONFIGFILE)
 	$(call PRINTS,PP $(@F))
-	$(call preprocess2file,$<,$@,)
+	$(call preprocess2file,$<,$@,-DLOADADDRESS=$(LOADADDRESS))
 
 $(LINKROM): $(ROMLDS)
 	$(call PRINTS,PP $(@F))
-	$(call preprocess2file,$<,$@,)
+	$(call preprocess2file,$<,$@,-DLOADADDRESS=$(LOADADDRESS))
 
 # Note: make sure -Wl,--gc-sections comes before -T in the linker options.
 # Having the latter first caused crashes on (at least) mini2g.

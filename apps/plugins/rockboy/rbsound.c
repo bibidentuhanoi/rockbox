@@ -56,14 +56,12 @@ void rockboy_pcm_init(void)
 #endif
 
     rb->mixer_set_frequency(pcm.hz); /* 44100 22050 11025 */
-    rb->pcmbuf_fade(false, true); /* Be sure channel is audible */
 }
 
 void rockboy_pcm_close(void)
 {
     memset(&pcm, 0, sizeof pcm);
     newly_started = true;
-    rb->pcmbuf_fade(false, false); /* Mute channel */
     rb->mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
     rb->mixer_set_frequency(HW_SAMPR_DEFAULT);
 }
@@ -75,10 +73,7 @@ int rockboy_pcm_submit(void)
 
     if(newly_started)
     {
-        static const struct mixer_play_cbs cbs = {
-            .get_more = get_more,
-        };
-        rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &cbs, NULL, 0);
+        rb->mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &get_more, NULL, 0);
         newly_started = false;
     }
 

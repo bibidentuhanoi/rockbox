@@ -21,7 +21,6 @@
 #define __AS3525_H__
 
 #define CACHEALIGN_BITS (5)
-#define CACHEALIGN_SIZE (32)
 
 #define UART_CHANNELS 1
 

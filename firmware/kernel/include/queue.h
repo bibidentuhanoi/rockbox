@@ -19,8 +19,8 @@
  *
  ****************************************************************************/
 
-#ifndef QUEUE_H
-#define QUEUE_H
+#ifndef ROCKBOX_QUEUE_H
+#define ROCKBOX_QUEUE_H
 
 #include <stdint.h>
 #include "config.h"
@@ -165,4 +165,4 @@ extern int queue_count(const struct event_queue *q);
 extern int queue_broadcast(long id, intptr_t data);
 extern void init_queues(void);
 
-#endif /* QUEUE_H */
+#endif /* ROCKBOX_QUEUE_H */

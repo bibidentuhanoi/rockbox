@@ -51,6 +51,11 @@
 #include "statusbar-skinned.h"
 #include "panic.h"
 
+#ifdef ESP32
+#include "esp_heap_caps.h"
+static unsigned char *pluginbuf;
+#endif
+
 #if CONFIG_CHARGING
 #include "power.h"
 #endif
@@ -70,7 +75,9 @@
 
 #define WRAPPER(_x_) _x_ ## _wrapper
 
-#if (CONFIG_PLATFORM & PLATFORM_HOSTED)
+#ifdef ESP32
+/* pluginbuf allocated from PSRAM on demand */
+#elif (CONFIG_PLATFORM & PLATFORM_HOSTED)
 static unsigned char pluginbuf[PLUGIN_BUFFER_SIZE];
 void sim_lcd_ex_init(unsigned long (*getpixel)(int, int));
 void sim_lcd_ex_update_rect(int x, int y, int width, int height);
@@ -643,6 +650,9 @@ static const struct plugin_api rockbox_api = {
     sound_get_pitch,
     sound_set_pitch,
 #endif
+    &audio_master_sampr_list[0],
+    &hw_freq_sampr[0],
+    pcm_apply_settings,
     pcm_play_lock,
     pcm_play_unlock,
     pcm_current_sink_caps,
@@ -869,12 +879,6 @@ static const struct plugin_api rockbox_api = {
     path_strip_volume,
 #endif
 
-    /* new stuff at the end, sort into place next time
-       the API gets incompatible */
-    panicf,
-    gui_synclist_scroll_stop,
-    add_event_ex,
-    remove_event_ex,
 };
 
 static int plugin_buffer_handle;
@@ -898,6 +902,11 @@ int plugin_load(const char* plugin, const void* parameter)
                                    !strcmp("view_text.rock", sepch + 1) ||
                                    !strcmp("disktidy.rock", sepch + 1) ||
                                    !strcmp("open_plugins.rock", sepch + 1));
+
+#ifdef ESP32
+    if (!pluginbuf)
+        pluginbuf = heap_caps_malloc(PLUGIN_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+#endif
 
     if (current_plugin_handle)
     {
@@ -1122,6 +1131,18 @@ void* plugin_get_buffer(size_t *buffer_size)
 {
     int buffer_pos;
 
+#ifdef ESP32
+    if (!pluginbuf)
+    {
+        pluginbuf = heap_caps_malloc(PLUGIN_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+    }
+    if (!pluginbuf)
+    {
+        *buffer_size = 0;
+        return NULL;
+    }
+#endif
+
     if (current_plugin_handle)
     {
         if (plugin_size >= PLUGIN_BUFFER_SIZE)
@@ -1138,6 +1159,22 @@ void* plugin_get_buffer(size_t *buffer_size)
 
     return &pluginbuf[buffer_pos];
 }
+
+#ifdef ESP32
+void plugin_release_buffer_for_codec(void)
+{
+    if (pluginbuf) {
+        heap_caps_free(pluginbuf);
+        pluginbuf = NULL;
+    }
+}
+
+void plugin_reclaim_buffer_after_codec(void)
+{
+    if (!pluginbuf)
+        pluginbuf = heap_caps_malloc(PLUGIN_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+}
+#endif
 
 /* Returns a pointer to the mp3 buffer.
    Playback gets stopped, to avoid conflicts.

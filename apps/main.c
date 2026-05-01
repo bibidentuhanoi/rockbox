@@ -244,6 +244,7 @@ int main(void)
     validate_start_directory_init();
     /* no calls INIT_ATTR functions after this point anymore!
      * see definition of INIT_ATTR in config.h */
+
     CHART(">root_menu");
     root_menu();
 }

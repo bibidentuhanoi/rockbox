@@ -20,7 +20,6 @@
  ****************************************************************************/
 #include "power.h"
 #include "mutex.h"
-#include "adc.h"
 #include "gpio-stm32h7.h"
 #include "system-echoplayer.h"
 #include "regs/cortex-m/cm_scb.h"
@@ -131,5 +130,5 @@ bool charging_state(void)
 
 int _battery_voltage(void)
 {
-    return adc_read(ADC_CHANNEL_BATTERY);
+    return 4000;
 }

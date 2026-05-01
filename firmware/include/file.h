@@ -42,6 +42,8 @@ enum relate_result
 
 #if defined(CTRU) && !defined(SIMULATOR)
 #include "filesystem-ctru.h"
+#elif defined(ESP32) && !defined(SIMULATOR)
+#include "filesystem-esp32.h"
 #elif defined(APPLICATION) || defined(CHECKWPS)
 #include "filesystem-app.h"
 #elif defined(SIMULATOR) || defined(DBTOOL)

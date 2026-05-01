@@ -21,7 +21,7 @@ EXTRADEPS  := libucl.a libmicrotar.a
 
 CPPDEFINES := $(shell echo foo | $(CROSS)$(CC) -dM -E -)
 
-ifeq ($(findstring __WIN32__,$(CPPDEFINES)),__WIN32__)
+ifeq ($(findstring WIN32,$(CPPDEFINES)),WIN32)
 # TODO: support Windows
 else
 ifeq ($(findstring APPLE,$(CPPDEFINES)),APPLE)

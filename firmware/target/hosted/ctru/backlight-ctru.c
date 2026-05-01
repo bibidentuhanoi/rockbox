@@ -23,10 +23,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
-
-#include <3ds/services/gsplcd.h>
-#include <3ds/result.h>
-
 #include "config.h"
 #include "backlight-target.h"
 #include "sysfs.h"
@@ -34,6 +30,8 @@
 #include "lcd.h"
 #include "debug.h"
 
+#include <3ds/services/gsplcd.h>
+#include <3ds/result.h>
 #include "luminance-ctru.h"
 
 /* TODO: To use calibrated values in rockbox,

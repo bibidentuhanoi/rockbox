@@ -21,7 +21,6 @@
  ****************************************************************************/
 #include <poll.h>
 #include <errno.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <linux/input.h>
@@ -50,60 +49,42 @@
    * Compute to angular velocity (degrees per second)
 
  */
-#define NR_POLL_DESC    5
+#define NR_POLL_DESC    4
 
 static int num_devices = 0;
 static struct pollfd poll_fds[NR_POLL_DESC];
 
-void button_add_input_device(int i)
-{
-    int fd = poll_fds[i].fd;
-    if (fd >= 0)
-        close(fd);
-
-    char path[32];
-    snprintf(path, sizeof(path), "/dev/input/event%d", i);
-    fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
-    poll_fds[i].fd = fd >= 0 ? fd : -1;
-    if(fd >= 0)
-    {
-        poll_fds[i].events = POLLIN;
-        poll_fds[i].revents = 0;
-        if (num_devices <= i)
-            num_devices = i + 1;
-    }
-}
-
 void button_init_device(void)
 {
+    const char * const input_devs[NR_POLL_DESC] = {
+        "/dev/input/event0",
+        "/dev/input/event1",
+        "/dev/input/event2",
+        "/dev/input/event3",
+    };
+
     for(int i = 0; i < NR_POLL_DESC; i++)
     {
-        poll_fds[i].fd = -1;
-        button_add_input_device(i);
+        int fd = open(input_devs[i], O_RDONLY | O_CLOEXEC);
+
+        if(fd >= 0)
+        {
+            poll_fds[num_devices].fd = fd;
+            poll_fds[num_devices].events = POLLIN;
+            poll_fds[num_devices].revents = 0;
+            num_devices++;
+        }
     }
-}
-
-void button_remove_input_device(int i)
-{
-    int fd = poll_fds[i].fd;
-    if (fd < 0)
-        return;
-
-    if (i == num_devices - 1)
-        num_devices = i;
-
-    close(fd);
-    poll_fds[i].fd = -1;
 }
 
 void button_close_device(void)
 {
-    num_devices = 0;
     /* close descriptors */
-    for(int i = 0; i < NR_POLL_DESC; i++)
+    for(int i = 0; i < num_devices; i++)
     {
-        button_remove_input_device(i);
+        close(poll_fds[i].fd);
     }
+    num_devices = 0;
 }
 
 #ifdef BUTTON_DELAY_RELEASE
@@ -279,10 +260,6 @@ int button_read_device(BDATA)
                         break;
                     }
                 }
-            }
-            /* device was removed/disconnected — close it to stop poll returning POLLHUP forever */
-            else if (poll_fds[i].revents & (POLLERR | POLLHUP)) {
-                button_remove_input_device(i);
             }
         }
     }
